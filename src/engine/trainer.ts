@@ -175,7 +175,7 @@ function handleExport() {
   const metadataJson = JSON.stringify(metadata, null, 2);
   const metadataBlob = new Blob([metadataJson], { type: 'application/json' });
 
-  const weightBuffers: ArrayBuffer[] = weights.map(w => w.buffer.slice(0));
+  const weightBuffers: ArrayBuffer[] = weights.map(w => w.buffer.slice(0) as ArrayBuffer);
   const totalSize = weightBuffers.reduce((a, b) => a + b.byteLength, 0);
   const combinedWeights = new Uint8Array(totalSize);
   let offset = 0;

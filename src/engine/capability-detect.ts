@@ -25,7 +25,7 @@ export async function detectCapabilities(): Promise<Capabilities> {
   };
 
   try {
-    if (navigator.storage && navigator.storage.getDirectory) {
+    if (navigator.storage && typeof navigator.storage.getDirectory === 'function') {
       caps.opfs = true;
     }
   } catch { /* not available */ }

@@ -21,7 +21,7 @@ export function serializeCheckpoint(
     loss,
     accuracy,
     paramShapes: params.map(p => [...p.shape]),
-    paramData: params.map(p => p.data.buffer.slice(0)),
+    paramData: params.map(p => p.data.buffer.slice(0) as ArrayBuffer),
     timestamp: Date.now(),
   };
 }
