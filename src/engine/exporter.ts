@@ -55,7 +55,7 @@ function buildConfigJson(ctx: ExportContext): string {
 function buildPthContent(ctx: ExportContext): string {
   return JSON.stringify(
     {
-      format: 'webkaya.pth.json',
+      format: 'browser-first-ai.pth.json',
       artifact: ctx.artifact,
       metadata: JSON.parse(buildMetadataJson(ctx)),
       config: JSON.parse(buildConfigJson(ctx)),
@@ -68,7 +68,7 @@ function buildPthContent(ctx: ExportContext): string {
 function buildTensorContent(ctx: ExportContext): string {
   return JSON.stringify(
     {
-      format: 'webkaya.tensor.v1',
+      format: 'browser-first-ai.tensor.v1',
       modelType: ctx.artifact.modelType,
       backend: ctx.artifact.backend,
       trainedAt: ctx.artifact.trainedAt,

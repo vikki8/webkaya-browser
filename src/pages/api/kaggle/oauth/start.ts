@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       'Open Kaggle settings.',
       'Under API section click Generate New Token.',
       'Copy token value from downloaded file (or use KAGGLE_API_TOKEN).',
-      'Paste token into WebKaya OAuth connect.',
+      'Paste token into Browser-First AI Platform OAuth connect.',
     ],
   });
 }

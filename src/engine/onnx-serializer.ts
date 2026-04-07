@@ -100,9 +100,9 @@ function baseModel(graph: onnx.IGraphProto, opsets: onnx.IOperatorSetIdProto[], 
   const metadataProps = Object.entries(metadata).map(([key, value]) => ({ key, value }));
   const model: onnx.IModelProto = {
     irVersion: onnx.Version.IR_VERSION,
-    producerName: 'webkaya',
+    producerName: 'browser-first-ai',
     producerVersion: '0.1.0',
-    domain: 'webkaya',
+    domain: 'browser-first-ai',
     modelVersion: 1,
     graph,
     opsetImport: opsets,
@@ -281,9 +281,9 @@ function buildNeuralNetworkOnnx(context: OnnxExportContext): Uint8Array {
     graph,
     [{ domain: '', version: 13 }],
     {
-      webkaya_model_type: context.artifact.modelType,
-      webkaya_backend: context.artifact.backend,
-      webkaya_target_column: context.dataset.targetColumn,
+      bfai_model_type: context.artifact.modelType,
+      bfai_backend: context.artifact.backend,
+      bfai_target_column: context.dataset.targetColumn,
     }
   );
 }
@@ -357,9 +357,9 @@ function buildLinearRegressionOnnx(context: OnnxExportContext): Uint8Array {
     graph,
     [{ domain: '', version: 13 }],
     {
-      webkaya_model_type: context.artifact.modelType,
-      webkaya_backend: context.artifact.backend,
-      webkaya_target_column: context.dataset.targetColumn,
+      bfai_model_type: context.artifact.modelType,
+      bfai_backend: context.artifact.backend,
+      bfai_target_column: context.dataset.targetColumn,
     }
   );
 }
@@ -501,9 +501,9 @@ function buildRandomForestOnnx(context: OnnxExportContext): Uint8Array {
       { domain: 'ai.onnx.ml', version: 3 },
     ],
     {
-      webkaya_model_type: context.artifact.modelType,
-      webkaya_backend: context.artifact.backend,
-      webkaya_target_column: context.dataset.targetColumn,
+      bfai_model_type: context.artifact.modelType,
+      bfai_backend: context.artifact.backend,
+      bfai_target_column: context.dataset.targetColumn,
     }
   );
 }

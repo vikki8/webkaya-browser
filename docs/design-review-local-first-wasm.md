@@ -1,6 +1,6 @@
 # Design Review: Local-First WASM Training Architecture
 
-**Document**: WebKaya Local-First WASM Architecture Review  
+**Document**: Browser-First AI Platform — Local-First WASM Architecture Review  
 **Status**: Draft  
 **Branch**: `cursor/local-first-wasm-design-212e`
 
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The WebKaya "Zero-Cloud ML Studio" vision is ambitious and directionally sound — browser-native ML training addresses real pain points around privacy, latency, and cost. However, the current design has several **critical feasibility gaps**, particularly around the LibTorch-to-WASM compilation pipeline, WebGPU integration, and memory constraints. This review identifies 12 issues across three severity tiers and proposes concrete improvements.
+The Browser-First AI Platform "zero-cloud" ML vision is ambitious and directionally sound — browser-native ML training addresses real pain points around privacy, latency, and cost. However, the current design has several **critical feasibility gaps**, particularly around the LibTorch-to-WASM compilation pipeline, WebGPU integration, and memory constraints. This review identifies 12 issues across three severity tiers and proposes concrete improvements.
 
 ---
 
@@ -107,7 +107,7 @@ This is a multi-year engineering effort for a dedicated team.
 
 **The Problem**: A custom `.kaya` format (Zip/Protobuf of `.pth` + architecture JSON) has portability issues:
 
-- `.pth` files are PyTorch pickle format — they require Python/LibTorch to deserialize. If WebKaya doesn't use LibTorch internally (per our recommendation), the format should change.
+- `.pth` files are PyTorch pickle format — they require Python/LibTorch to deserialize. If this platform doesn't use LibTorch internally (per our recommendation), the format should change.
 - Protobuf adds a build dependency (protoc) and requires schema management.
 - "Guaranteed to run in any WASM environment" is only true if you also ship the inference runtime.
 
@@ -292,7 +292,7 @@ Export: .kaya bundle = model.onnx + metadata.json + config.json
 ## 6. Revised File Structure
 
 ```
-/webkaya
+/browser-first-ai-platform
 ├── README.md
 ├── package.json
 ├── next.config.js                   # Cross-Origin-Isolation headers

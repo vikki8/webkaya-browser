@@ -718,7 +718,7 @@ export async function parseDatasetBlob(
     if (size > BROWSER_ZIP_PARSE_MAX_BYTES) {
       throw new Error(
         `ZIP is about ${(size / (1024 * 1024 * 1024)).toFixed(1)}GB — too large to unpack in the browser. ` +
-          'Use the Kaggle CLI (`kaggle datasets download …`), extract on disk, then use “Open folder” in webkaya. See docs/DEPLOYMENT_AND_DATASETS.md.'
+          'Use the Kaggle CLI (`kaggle datasets download …`), extract on disk, then use “Open folder” in Browser-First AI Platform. See docs/DEPLOYMENT_AND_DATASETS.md.'
       );
     }
     if (size > LARGE_ZIP_WARN_BYTES) {

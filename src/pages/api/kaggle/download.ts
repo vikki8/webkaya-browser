@@ -12,7 +12,7 @@ import { applyRateLimit, enforceSameOrigin } from '../../../server/request-guard
 
 /** 0 = unlimited. Default unlimited (set e.g. 400MB cap in production if needed). */
 function readMaxDownloadBytes(): number {
-  const raw = process.env.WEBKAYA_KAGGLE_MAX_DOWNLOAD_BYTES;
+  const raw = process.env.BROWSER_FIRST_AI_KAGGLE_MAX_DOWNLOAD_BYTES;
   if (raw === undefined || raw === '') return 0;
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -21,7 +21,7 @@ function readMaxDownloadBytes(): number {
 
 /** Idle time with no bytes before aborting upstream read. 0 = disabled. Default 5 minutes. */
 function readIdleTimeoutMs(): number {
-  const raw = process.env.WEBKAYA_KAGGLE_IDLE_TIMEOUT_MS;
+  const raw = process.env.BROWSER_FIRST_AI_KAGGLE_IDLE_TIMEOUT_MS;
   if (raw === undefined || raw === '') return 300_000;
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 0) return 300_000;
@@ -56,7 +56,7 @@ class ByteLimitTransform extends Transform {
     this.totalBytes += chunk.length;
     if (this.totalBytes > this.limitBytes) {
       callback(
-        new Error(`Kaggle download exceeds ${Math.floor(this.limitBytes / (1024 * 1024))}MB limit (WEBKAYA_KAGGLE_MAX_DOWNLOAD_BYTES).`)
+        new Error(`Kaggle download exceeds ${Math.floor(this.limitBytes / (1024 * 1024))}MB limit (BROWSER_FIRST_AI_KAGGLE_MAX_DOWNLOAD_BYTES).`)
       );
       return;
     }
@@ -80,7 +80,7 @@ function wrapWebStreamWithIdleTimeout(body: ReadableStream<Uint8Array>, idleMs: 
     }
   };
 
-  const stallError = () => new Error(`Kaggle download stalled: no data for ${idleMs}ms (WEBKAYA_KAGGLE_IDLE_TIMEOUT_MS).`);
+  const stallError = () => new Error(`Kaggle download stalled: no data for ${idleMs}ms (BROWSER_FIRST_AI_KAGGLE_IDLE_TIMEOUT_MS).`);
 
   return new ReadableStream({
     async start(controller) {
@@ -141,7 +141,7 @@ async function tryDownload(datasetRef: string, fileName: string | null, auth: Ka
         headers: {
           Authorization: kaggleAuthorization(auth),
           Accept: '*/*',
-          'User-Agent': 'WebKaya/0.1.0',
+          'User-Agent': 'BrowserFirstAI-Platform/0.1.0',
         },
       },
       idleMs
@@ -207,16 +207,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const headerLength = Number(response.headers.get('content-length') || 0);
     if (maxBytes > 0 && Number.isFinite(headerLength) && headerLength > maxBytes) {
       return res.status(413).json({
-        error: `Dataset exceeds configured max download size (${Math.floor(maxBytes / (1024 * 1024))}MB). Set WEBKAYA_KAGGLE_MAX_DOWNLOAD_BYTES=0 for unlimited.`,
+        error: `Dataset exceeds configured max download size (${Math.floor(maxBytes / (1024 * 1024))}MB). Set BROWSER_FIRST_AI_KAGGLE_MAX_DOWNLOAD_BYTES=0 for unlimited.`,
       });
     }
 
     const contentType = response.headers.get('content-type') || 'application/octet-stream';
     const contentLength = response.headers.get('content-length');
     res.setHeader('Content-Type', contentType);
-    res.setHeader('X-Webkaya-Filename', resolvedFileName);
+    res.setHeader('X-Browser-First-AI-Filename', resolvedFileName);
     if (contentLength) {
-      res.setHeader('X-Webkaya-Content-Length', contentLength);
+      res.setHeader('X-Browser-First-AI-Content-Length', contentLength);
       res.setHeader('Content-Length', contentLength);
     }
     res.setHeader('Cache-Control', 'no-store');

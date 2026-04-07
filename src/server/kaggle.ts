@@ -67,7 +67,7 @@ export async function fetchKaggle(
       headers: {
         Authorization: kaggleAuthorization(auth),
         Accept: '*/*',
-        'User-Agent': 'WebKaya/0.1.0',
+        'User-Agent': 'BrowserFirstAI-Platform/0.1.0',
       },
       signal: controller.signal,
     });

@@ -92,7 +92,7 @@ export function validateTemplateConfig(config: WasmFunctionTemplateConfig): stri
 
 export function generateExecutableFromTemplate(templateConfig: WasmFunctionTemplateConfig): string {
   const cfg = normalizeTemplateConfig(templateConfig);
-  return `// WebKaya Eject Mode - Executable WASM policy
+  return `// Browser-First AI Platform — Eject Mode - Executable WASM policy
 // Use "api.base" as the safe baseline from Template Mode.
 // Return a partial policy object to override fields.
 

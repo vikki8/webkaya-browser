@@ -6,8 +6,8 @@ The proxy at `/api/kaggle/download` streams data from Kaggle to the browser. Beh
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `WEBKAYA_KAGGLE_MAX_DOWNLOAD_BYTES` | *(empty)* = **unlimited** | Hard cap on bytes streamed through the server. Set to a positive number (bytes) to enforce a maximum; use `0` explicitly for unlimited. |
-| `WEBKAYA_KAGGLE_IDLE_TIMEOUT_MS` | `300000` (5 minutes) | If no bytes arrive from Kaggle for this long, the transfer aborts. Set to `0` to disable idle timeout (not recommended on production without other safeguards). |
+| `BROWSER_FIRST_AI_KAGGLE_MAX_DOWNLOAD_BYTES` | *(empty)* = **unlimited** | Hard cap on bytes streamed through the server. Set to a positive number (bytes) to enforce a maximum; use `0` explicitly for unlimited. |
+| `BROWSER_FIRST_AI_KAGGLE_IDLE_TIMEOUT_MS` | `300000` (5 minutes) | If no bytes arrive from Kaggle for this long, the transfer aborts. Set to `0` to disable idle timeout (not recommended on production without other safeguards). |
 
 The route sets `responseLimit: false` so Next.js does not truncate large bodies. **Serverless hosts** (e.g. Vercel functions) often impose their own **maximum duration** and **response size** limits. Multi‑gigabyte or hour‑long streams may require **self‑hosted Node** (`next start` behind your own reverse proxy), a **long‑running worker**, or **skipping the proxy** by using the Kaggle CLI locally (below).
 
@@ -26,10 +26,10 @@ The route sets `responseLimit: false` so Next.js does not truncate large bodies.
    unzip dataset.zip -d ./my_dataset
    ```
 
-3. In webkaya, use **Open folder** (File System Access API) and select the extracted directory containing CSV/JSON or image files.
+3. In **Browser-First AI Platform**, use **Open folder** (File System Access API) and select the extracted directory containing CSV/JSON or image files.
 
 This avoids browser memory limits and long‑lived HTTP connections through your app server.
 
 ## Local development
 
-Run `npm run dev` or `npm run start` after `npm run build`. For large downloads, prefer `next start` on a machine with enough disk and stable network; tune `WEBKAYA_KAGGLE_IDLE_TIMEOUT_MS` if transfers stall on slow links.
+Run `npm run dev` or `npm run start` after `npm run build`. For large downloads, prefer `next start` on a machine with enough disk and stable network; tune `BROWSER_FIRST_AI_KAGGLE_IDLE_TIMEOUT_MS` if transfers stall on slow links.
