@@ -1,0 +1,27 @@
+# Dependencies & build output (do not commit — reinstall with npm ci / npm install)
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.local
+.env.production
+.env*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Test / coverage
+coverage/
+
+# Vercel
+.vercel
