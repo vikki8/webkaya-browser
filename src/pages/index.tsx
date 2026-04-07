@@ -3020,9 +3020,9 @@ export default function Studio() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="text-[22px] font-semibold tracking-tight">Studio dashboard</div>
-                  <div className="mt-1 text-base text-slate-400">
-                    Browser-First AI Platform: one workspace for data, preprocessing, training, and export — local by default,
-                    no account required.
+                  <div className="mt-1 space-y-0.5 text-base text-slate-400">
+                    <div>Browser-First AI Platform: one workspace for data, preprocessing, training, and export</div>
+                    <div>Local by default, no account required.</div>
                   </div>
                 </div>
                 <div className="grid min-w-[360px] flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
