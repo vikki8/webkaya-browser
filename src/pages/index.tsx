@@ -13,6 +13,11 @@ import {
 } from '../data/indexeddb';
 import { streamKaggleDownloadToFile } from '../data/kaggle-download-client';
 import { DatasetParseProgress, parseDatasetBlob, parseDatasetDirectoryHandle, parseDatasetFile } from '../data/parsers';
+import {
+  buildIntelligentPreprocessingPlan,
+  refreshNormalizationPlanLine,
+  shouldNormalizeForAlgorithm,
+} from '../data/intelligent-preprocess';
 import { analyzeDataset, buildColumnProfiles, getAlgorithmCatalogSuggestions } from '../data/insights';
 import { computeClassificationMetrics, computeRegressionMetrics } from '../engine/metrics';
 import { RecurrentClassifierModel, predictRecurrentClassifier } from '../engine/algorithms/recurrent';
@@ -1569,6 +1574,10 @@ export default function Studio() {
   const [preprocessProgress, setPreprocessProgress] = useState<{ percent: number; message: string } | null>(null);
   const [preprocessError, setPreprocessError] = useState<string | null>(null);
   const [preprocessNotice, setPreprocessNotice] = useState<string | null>(null);
+  const [preprocessingPlan, setPreprocessingPlan] = useState<string[]>([]);
+  const [preprocessUserTouched, setPreprocessUserTouched] = useState(false);
+  const [showColumn1PreprocessAdvanced, setShowColumn1PreprocessAdvanced] = useState(false);
+  const [showPreprocessStepToggles, setShowPreprocessStepToggles] = useState(false);
   const [showAdvancedPreprocess, setShowAdvancedPreprocess] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [datasetLoadError, setDatasetLoadError] = useState<string | null>(null);
@@ -1918,6 +1927,19 @@ export default function Studio() {
     }
     return 'random_forest';
   }, [selectedAlgorithmInfo, effectiveModelChoice, recommendedAlgorithm, insights?.suggestedAlgorithms]);
+
+  useEffect(() => {
+    if (!dataset || !insights || preprocessUserTouched) return;
+    const disableNorm = shouldDisableNormalizationForLargeDataset(dataset);
+    const algo =
+      resolvedTrainingChoice === 'recommended' || resolvedTrainingChoice === 'auto'
+        ? insights.recommendedAlgorithm ?? 'random_forest'
+        : (resolvedTrainingChoice as AlgorithmId);
+    const normalize = shouldNormalizeForAlgorithm(algo, disableNorm);
+    setPreprocessConfig((prev) => ({ ...prev, normalizeData: normalize }));
+    setPreprocessingPlan((prev) => refreshNormalizationPlanLine(prev, algo, normalize, disableNorm));
+  }, [dataset, insights, resolvedTrainingChoice, preprocessUserTouched]);
+
   const recommendationSignature = insights
     ? `${insights.recommendedAlgorithm ?? 'none'}|${insights.datasetSize}|${insights.modality}|${insights.taskType}|${insights.rowCount}`
     : 'none';
@@ -2118,6 +2140,8 @@ export default function Studio() {
           ...DEFAULT_PREPROCESS,
           ...(pending.processedDataset.preprocessing ?? {}),
         });
+        setPreprocessUserTouched(true);
+        setPreprocessingPlan([]);
         setProcessedDataset(pending.processedDataset);
         setSplitChoice(restoredSplit);
         setSplitUsed(restoredSplit);
@@ -2285,25 +2309,34 @@ export default function Studio() {
   }, [training.state.phase, training.state.metrics, step]);
 
   const applyParsedDataset = (parsed: ParsedDataset) => {
-    const { insights: detectedInsights } = analyzeDataset(parsed.rows, parsed.columns, {
+    const { insights: detectedInsights, profiles: analyzedProfiles } = analyzeDataset(parsed.rows, parsed.columns, {
       inferredFormat: parsed.inferredFormat,
     });
     const disableNormalizationByDefault = shouldDisableNormalizationForLargeDataset(parsed);
+    const { config: smartConfig, plan } = buildIntelligentPreprocessingPlan(detectedInsights, analyzedProfiles, {
+      inferredFormat: parsed.inferredFormat,
+      rowCount: parsed.rows.length,
+      disableNormalizationForPerformance: disableNormalizationByDefault,
+      algorithmHint: detectedInsights.recommendedAlgorithm,
+    });
     setDataset(parsed);
     setColumns(parsed.columns);
     setPreviewRows(parsed.rows.slice(0, 50));
-    setProfiles(buildColumnProfiles(parsed.rows, parsed.columns));
+    setProfiles(analyzedProfiles);
     setInsights(detectedInsights);
     setModelChoice('recommended');
     setModelChoiceTouched(false);
     setShowAdvancedModelConfig(false);
     resumePromptedRunBasesRef.current.clear();
     setRunId('');
-    setPreprocessConfig((prev) => ({
-      ...DEFAULT_PREPROCESS,
-      targetColumn: detectedInsights.detectedTarget ?? prev.targetColumn,
-      normalizeData: disableNormalizationByDefault ? false : DEFAULT_PREPROCESS.normalizeData,
-    }));
+    setPreprocessConfig({
+      ...smartConfig,
+      targetColumn: detectedInsights.detectedTarget ?? smartConfig.targetColumn,
+    });
+    setPreprocessingPlan(plan);
+    setPreprocessUserTouched(false);
+    setShowColumn1PreprocessAdvanced(false);
+    setShowPreprocessStepToggles(false);
     setPreprocessNotice(
       disableNormalizationByDefault
         ? 'Large/high-dimensional dataset detected. Normalization is disabled by default for faster server preprocessing.'
@@ -3291,12 +3324,13 @@ export default function Studio() {
                   <select
                     className="wk-input"
                     value={preprocessConfig.targetColumn ?? ''}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      setPreprocessUserTouched(true);
                       setPreprocessConfig((prev) => ({
                         ...prev,
                         targetColumn: event.target.value || null,
-                      }))
-                    }
+                      }));
+                    }}
                   >
                     <option value="">Select target label</option>
                     {columns.map((column) => (
@@ -3311,82 +3345,115 @@ export default function Studio() {
                 </div>
 
                 <div className="wk-panel-card mb-3">
-                  <div className="wk-card-label mb-2">Preprocessing</div>
-                  <div className="space-y-2 text-xs">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={preprocessConfig.fixMissingValues}
-                        onChange={(event) => setPreprocessConfig((prev) => ({ ...prev, fixMissingValues: event.target.checked }))}
-                      />
-                      Missing Values
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={preprocessConfig.normalizeData}
-                        onChange={(event) => setPreprocessConfig((prev) => ({ ...prev, normalizeData: event.target.checked }))}
-                      />
-                      Normalization
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={preprocessConfig.encodeCategories}
-                        onChange={(event) => setPreprocessConfig((prev) => ({ ...prev, encodeCategories: event.target.checked }))}
-                      />
-                      Encoding
-                    </label>
-                    {datasetLooksImage && (
-                      <>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={preprocessConfig.augmentImageData}
-                            onChange={(event) =>
-                              setPreprocessConfig((prev) => ({
-                                ...prev,
-                                augmentImageData: event.target.checked,
-                                imageAugmentationFactor: event.target.checked ? 2 : 1,
-                              }))
-                            }
-                          />
-                          Rotation / Flip / Zoom / Brightness
-                        </label>
-                        {preprocessConfig.augmentImageData && (
-                          <div className="grid grid-cols-2 gap-2">
+                  <div className="wk-card-label mb-2">Preprocessing plan</div>
+                  <p className="mb-2 text-xs text-slate-400">
+                    The app picks sensible defaults from your data and model. Expand Advanced to override.
+                  </p>
+                  {preprocessingPlan.length > 0 ? (
+                    <ul className="mb-3 max-h-44 list-inside list-disc space-y-1 overflow-y-auto text-xs text-slate-300">
+                      {preprocessingPlan.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mb-2 text-xs text-slate-500">Load a dataset to generate a plan.</p>
+                  )}
+                  <button
+                    type="button"
+                    className="mb-2 w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-slate-300"
+                    onClick={() => setShowColumn1PreprocessAdvanced((prev) => !prev)}
+                  >
+                    {showColumn1PreprocessAdvanced ? 'Hide advanced options' : 'Advanced: manual preprocessing toggles'}
+                  </button>
+                  {showColumn1PreprocessAdvanced && (
+                    <div className="space-y-2 text-xs">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={preprocessConfig.fixMissingValues}
+                          onChange={(event) => {
+                            setPreprocessUserTouched(true);
+                            setPreprocessConfig((prev) => ({ ...prev, fixMissingValues: event.target.checked }));
+                          }}
+                        />
+                        Missing Values
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={preprocessConfig.normalizeData}
+                          onChange={(event) => {
+                            setPreprocessUserTouched(true);
+                            setPreprocessConfig((prev) => ({ ...prev, normalizeData: event.target.checked }));
+                          }}
+                        />
+                        Normalization
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={preprocessConfig.encodeCategories}
+                          onChange={(event) => {
+                            setPreprocessUserTouched(true);
+                            setPreprocessConfig((prev) => ({ ...prev, encodeCategories: event.target.checked }));
+                          }}
+                        />
+                        Encoding
+                      </label>
+                      {datasetLooksImage && (
+                        <>
+                          <label className="flex items-center gap-2">
                             <input
-                              className="wk-input wk-number"
-                              type="number"
-                              min={1}
-                              max={3}
-                              value={preprocessConfig.imageAugmentationFactor}
-                              onChange={(event) =>
+                              type="checkbox"
+                              checked={preprocessConfig.augmentImageData}
+                              onChange={(event) => {
+                                setPreprocessUserTouched(true);
                                 setPreprocessConfig((prev) => ({
                                   ...prev,
-                                  imageAugmentationFactor: Math.max(1, Math.min(3, Number(event.target.value) || 1)) as 1 | 2 | 3,
-                                }))
-                              }
+                                  augmentImageData: event.target.checked,
+                                  imageAugmentationFactor: event.target.checked ? 2 : 1,
+                                }));
+                              }}
                             />
-                            <input
-                              className="wk-input wk-number"
-                              type="number"
-                              min={0}
-                              max={0.5}
-                              step={0.01}
-                              value={preprocessConfig.imageAugmentationNoise}
-                              onChange={(event) =>
-                                setPreprocessConfig((prev) => ({
-                                  ...prev,
-                                  imageAugmentationNoise: Math.max(0, Math.min(0.5, Number(event.target.value) || 0)),
-                                }))
-                              }
-                            />
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
+                            Rotation / Flip / Zoom / Brightness
+                          </label>
+                          {preprocessConfig.augmentImageData && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                className="wk-input wk-number"
+                                type="number"
+                                min={1}
+                                max={3}
+                                value={preprocessConfig.imageAugmentationFactor}
+                                onChange={(event) => {
+                                  setPreprocessUserTouched(true);
+                                  setPreprocessConfig((prev) => ({
+                                    ...prev,
+                                    imageAugmentationFactor: Math.max(1, Math.min(3, Number(event.target.value) || 1)) as 1 | 2 | 3,
+                                  }));
+                                }}
+                              />
+                              <input
+                                className="wk-input wk-number"
+                                type="number"
+                                min={0}
+                                max={0.5}
+                                step={0.01}
+                                value={preprocessConfig.imageAugmentationNoise}
+                                onChange={(event) => {
+                                  setPreprocessUserTouched(true);
+                                  setPreprocessConfig((prev) => ({
+                                    ...prev,
+                                    imageAugmentationNoise: Math.max(0, Math.min(0.5, Number(event.target.value) || 0)),
+                                  }));
+                                }}
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                   {processedDataset && (
                     <div className="mt-3 border-t border-white/10 pt-3 text-xs text-slate-300">
                       <div>Missing before/after: {processedDataset.stats.beforeMissing} → {processedDataset.stats.afterMissing}</div>
@@ -4940,7 +5007,7 @@ export default function Studio() {
             dataset ? (
             <div className="wk-preprocess-screen">
               <h2>Understand Your Data</h2>
-              <p className="wk-subtitle">Preview columns, inspect automatic insights, and apply one-click fixes.</p>
+              <p className="wk-subtitle">Preview columns, review automatic insights and the preprocessing plan, then continue.</p>
 
               <div className="wk-preprocess-grid">
                 <div className="wk-panel-block">
@@ -4953,6 +5020,7 @@ export default function Studio() {
                     columns={columns}
                     targetColumn={preprocessConfig.targetColumn}
                     onHeaderClick={(column) => {
+                      setPreprocessUserTouched(true);
                       setPreprocessConfig((prev) => ({ ...prev, targetColumn: column }));
                     }}
                   />
@@ -4997,89 +5065,114 @@ export default function Studio() {
 
                   <div className="wk-panel-block">
                     <div className="wk-block-header">
-                      <h3>Suggested Fixes</h3>
+                      <h3>Preprocessing plan</h3>
                     </div>
-                    <div className="wk-fix-buttons">
-                      <button
-                        className={`wk-fix-btn ${preprocessConfig.fixMissingValues ? 'active' : ''}`}
-                        onClick={() =>
-                          setPreprocessConfig((prev) => ({ ...prev, fixMissingValues: !prev.fixMissingValues }))
-                        }
-                      >
-                        Fix Missing Values
-                      </button>
-                      <button
-                        className={`wk-fix-btn ${preprocessConfig.encodeCategories ? 'active' : ''}`}
-                        onClick={() =>
-                          setPreprocessConfig((prev) => ({ ...prev, encodeCategories: !prev.encodeCategories }))
-                        }
-                      >
-                        Encode Categories
-                      </button>
-                      <button
-                        className={`wk-fix-btn ${preprocessConfig.normalizeData ? 'active' : ''}`}
-                        onClick={() =>
-                          setPreprocessConfig((prev) => ({ ...prev, normalizeData: !prev.normalizeData }))
-                        }
-                      >
-                        Normalize Data
-                      </button>
-                      {insights?.modality === 'image' && (
-                        <button
-                          className={`wk-fix-btn ${preprocessConfig.augmentImageData ? 'active' : ''}`}
-                          onClick={() =>
-                            setPreprocessConfig((prev) => ({
-                              ...prev,
-                              augmentImageData: !prev.augmentImageData,
-                              imageAugmentationFactor: prev.augmentImageData
-                                ? 1
-                                : prev.imageAugmentationFactor === 3
-                                  ? 3
-                                  : 2,
-                            }))
-                          }
-                        >
-                          Augment Image Data
-                        </button>
-                      )}
-                    </div>
-                    {insights?.modality === 'image' && preprocessConfig.augmentImageData && (
-                      <div className="wk-row-grid" style={{ marginTop: 10 }}>
-                        <div className="form-group">
-                          <label className="label">Augmentation Factor</label>
-                          <select
-                            className="select"
-                            value={preprocessConfig.imageAugmentationFactor}
-                            onChange={(event) =>
-                              setPreprocessConfig((prev) => ({
-                                ...prev,
-                                imageAugmentationFactor: Number(event.target.value) as 1 | 2 | 3,
-                              }))
-                            }
+                    <p className="wk-hint" style={{ marginBottom: 12 }}>
+                      Configured automatically from your data and selected model. Expand Advanced to change individual steps.
+                    </p>
+                    <ul className="wk-insight-list" style={{ listStyleType: 'disc', paddingLeft: 18 }}>
+                      {preprocessingPlan.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                    <button
+                      type="button"
+                      className="wk-advanced-toggle"
+                      onClick={() => setShowPreprocessStepToggles((prev) => !prev)}
+                    >
+                      {showPreprocessStepToggles ? 'Hide step toggles' : 'Advanced: toggle preprocessing steps'}
+                    </button>
+                    {showPreprocessStepToggles && (
+                      <>
+                        <div className="wk-fix-buttons">
+                          <button
+                            className={`wk-fix-btn ${preprocessConfig.fixMissingValues ? 'active' : ''}`}
+                            onClick={() => {
+                              setPreprocessUserTouched(true);
+                              setPreprocessConfig((prev) => ({ ...prev, fixMissingValues: !prev.fixMissingValues }));
+                            }}
                           >
-                            <option value={1}>1x (disabled)</option>
-                            <option value={2}>2x dataset size</option>
-                            <option value={3}>3x dataset size</option>
-                          </select>
+                            Fix Missing Values
+                          </button>
+                          <button
+                            className={`wk-fix-btn ${preprocessConfig.encodeCategories ? 'active' : ''}`}
+                            onClick={() => {
+                              setPreprocessUserTouched(true);
+                              setPreprocessConfig((prev) => ({ ...prev, encodeCategories: !prev.encodeCategories }));
+                            }}
+                          >
+                            Encode Categories
+                          </button>
+                          <button
+                            className={`wk-fix-btn ${preprocessConfig.normalizeData ? 'active' : ''}`}
+                            onClick={() => {
+                              setPreprocessUserTouched(true);
+                              setPreprocessConfig((prev) => ({ ...prev, normalizeData: !prev.normalizeData }));
+                            }}
+                          >
+                            Normalize Data
+                          </button>
+                          {insights?.modality === 'image' && (
+                            <button
+                              className={`wk-fix-btn ${preprocessConfig.augmentImageData ? 'active' : ''}`}
+                              onClick={() => {
+                                setPreprocessUserTouched(true);
+                                setPreprocessConfig((prev) => ({
+                                  ...prev,
+                                  augmentImageData: !prev.augmentImageData,
+                                  imageAugmentationFactor: prev.augmentImageData
+                                    ? 1
+                                    : prev.imageAugmentationFactor === 3
+                                      ? 3
+                                      : 2,
+                                }));
+                              }}
+                            >
+                              Augment Image Data
+                            </button>
+                          )}
                         </div>
-                        <div className="form-group">
-                          <label className="label">Augmentation Noise</label>
-                          <input
-                            className="input"
-                            type="number"
-                            min={0}
-                            max={0.5}
-                            step={0.01}
-                            value={preprocessConfig.imageAugmentationNoise}
-                            onChange={(event) =>
-                              setPreprocessConfig((prev) => ({
-                                ...prev,
-                                imageAugmentationNoise: Math.max(0, Math.min(0.5, Number(event.target.value) || 0)),
-                              }))
-                            }
-                          />
-                        </div>
-                      </div>
+                        {insights?.modality === 'image' && preprocessConfig.augmentImageData && (
+                          <div className="wk-row-grid" style={{ marginTop: 10 }}>
+                            <div className="form-group">
+                              <label className="label">Augmentation Factor</label>
+                              <select
+                                className="select"
+                                value={preprocessConfig.imageAugmentationFactor}
+                                onChange={(event) => {
+                                  setPreprocessUserTouched(true);
+                                  setPreprocessConfig((prev) => ({
+                                    ...prev,
+                                    imageAugmentationFactor: Number(event.target.value) as 1 | 2 | 3,
+                                  }));
+                                }}
+                              >
+                                <option value={1}>1x (disabled)</option>
+                                <option value={2}>2x dataset size</option>
+                                <option value={3}>3x dataset size</option>
+                              </select>
+                            </div>
+                            <div className="form-group">
+                              <label className="label">Augmentation Noise</label>
+                              <input
+                                className="input"
+                                type="number"
+                                min={0}
+                                max={0.5}
+                                step={0.01}
+                                value={preprocessConfig.imageAugmentationNoise}
+                                onChange={(event) => {
+                                  setPreprocessUserTouched(true);
+                                  setPreprocessConfig((prev) => ({
+                                    ...prev,
+                                    imageAugmentationNoise: Math.max(0, Math.min(0.5, Number(event.target.value) || 0)),
+                                  }));
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                     {preprocessNotice && <p className="wk-hint">{preprocessNotice}</p>}
 
@@ -5136,9 +5229,10 @@ export default function Studio() {
                         <select
                           className="select"
                           value={preprocessConfig.targetColumn ?? ''}
-                          onChange={(event) =>
-                            setPreprocessConfig((prev) => ({ ...prev, targetColumn: event.target.value || null }))
-                          }
+                          onChange={(event) => {
+                            setPreprocessUserTouched(true);
+                            setPreprocessConfig((prev) => ({ ...prev, targetColumn: event.target.value || null }));
+                          }}
                         >
                           <option value="">Select target</option>
                           {columns.map((column) => (
@@ -5156,14 +5250,15 @@ export default function Studio() {
                               <button
                                 key={profile.name}
                                 className={`wk-chip ${dropped ? 'dropped' : ''}`}
-                                onClick={() =>
+                                onClick={() => {
+                                  setPreprocessUserTouched(true);
                                   setPreprocessConfig((prev) => ({
                                     ...prev,
                                     droppedColumns: dropped
                                       ? prev.droppedColumns.filter((column) => column !== profile.name)
                                       : [...prev.droppedColumns, profile.name],
-                                  }))
-                                }
+                                  }));
+                                }}
                               >
                                 {profile.name}
                               </button>
