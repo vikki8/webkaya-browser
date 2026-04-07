@@ -3,6 +3,12 @@ import { AutoInsights, DataRow, PreprocessingConfig, PreprocessingStats, Process
 
 type PreprocessStage = 'analyzing' | 'fix_missing' | 'encode' | 'normalize' | 'augment' | 'build_features' | 'complete';
 
+/**
+ * Above this row×column count, serializing `rows` as JSON for `/api/dataset/preprocess` can throw
+ * `Invalid string length` in the browser. Use {@link preprocessDataset} in-process instead.
+ */
+export const MAX_CLIENT_JSON_PREPROCESS_CELLS = 2_000_000;
+
 export interface PreprocessDatasetOptions {
   previewOnly?: boolean;
   allowInPlace?: boolean;

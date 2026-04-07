@@ -1,4 +1,4 @@
-import { Unzip, UnzipInflate, strFromU8, unzipSync } from 'fflate';
+import { Unzip, UnzipInflate, strFromU8 } from 'fflate';
 import { DataRow, ParsedDataset } from '../types/data';
 
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
@@ -23,6 +23,33 @@ function inferDelimiter(headerLine: string): string {
   return best;
 }
 
+/** One CSV record line (no embedded newlines inside quoted fields crossing chunks — rare for MNIST-style data). */
+function parseCsvLine(line: string, delimiter: string): string[] {
+  const parsed: string[] = [];
+  let value = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        value += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === delimiter && !inQuotes) {
+      parsed.push(value.trim());
+      value = '';
+      continue;
+    }
+    value += ch;
+  }
+  parsed.push(value.trim());
+  return parsed;
+}
+
 function parseCsvRows(text: string): string[][] {
   const rows: string[][] = [];
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -31,29 +58,7 @@ function parseCsvRows(text: string): string[][] {
   const delimiter = inferDelimiter(nonEmpty[0]);
 
   for (const line of nonEmpty) {
-    const parsed: string[] = [];
-    let value = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          value += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-        continue;
-      }
-      if (ch === delimiter && !inQuotes) {
-        parsed.push(value.trim());
-        value = '';
-        continue;
-      }
-      value += ch;
-    }
-    parsed.push(value.trim());
-    rows.push(parsed);
+    rows.push(parseCsvLine(line, delimiter));
   }
 
   return rows;
@@ -86,6 +91,159 @@ function rowsFromCsv(text: string): DataRow[] {
   }
 
   return rows;
+}
+
+function pickPrimaryStructuredZipEntry(names: string[]): string | undefined {
+  if (!names.length) return undefined;
+  const csvs = names.filter((n) => n.toLowerCase().endsWith('.csv'));
+  if (csvs.length) {
+    const train = csvs.find((n) => /train/i.test(n));
+    if (train) return train;
+    return csvs[0];
+  }
+  const jsons = names.filter((n) => n.toLowerCase().endsWith('.json'));
+  if (jsons.length) return jsons[0];
+  return names[0];
+}
+
+async function streamBlobIntoUnzip(blob: Blob, uz: Unzip): Promise<void> {
+  if (typeof blob.stream === 'function') {
+    const reader = blob.stream().getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        uz.push(value ?? new Uint8Array(0), done);
+        if (done) break;
+      }
+    } finally {
+      reader.releaseLock?.();
+    }
+    return;
+  }
+  const buf = await blob.arrayBuffer();
+  uz.push(new Uint8Array(buf), true);
+}
+
+/**
+ * Incremental UTF-8 decode + line split + CSV parse. Avoids holding the full decompressed CSV as one string.
+ */
+async function rowsFromCsvUtf8Chunks(
+  nextChunk: () => Promise<{ chunk: Uint8Array; done: boolean }>,
+  options?: DatasetParseOptions
+): Promise<DataRow[]> {
+  const rows: DataRow[] = [];
+  let headers: string[] | null = null;
+  let delimiter = ',';
+  let partial = '';
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  const emitEvery = 8000;
+
+  while (true) {
+    const { chunk, done } = await nextChunk();
+    const text = decoder.decode(chunk, { stream: !done });
+    partial += text;
+
+    let nl: number;
+    while ((nl = partial.indexOf('\n')) !== -1) {
+      const line = partial.slice(0, nl);
+      partial = partial.slice(nl + 1);
+      const trimmed = line.replace(/\r$/, '');
+      if (!trimmed.trim()) continue;
+      if (!headers) {
+        delimiter = inferDelimiter(trimmed);
+        headers = parseCsvLine(trimmed, delimiter).map((h, idx) => h || `column_${idx + 1}`);
+        continue;
+      }
+      const cells = parseCsvLine(trimmed, delimiter);
+      const row: DataRow = {};
+      for (let c = 0; c < headers.length; c++) {
+        row[headers[c]] = coerceValue(cells[c] ?? '');
+      }
+      rows.push(row);
+      if (rows.length % emitEvery === 0) {
+        emitParseProgress(options, {
+          stage: 'processing_images',
+          processed: rows.length,
+          total: rows.length,
+          message: `Parsed ${rows.length.toLocaleString()} CSV rows (streaming)...`,
+        });
+      }
+    }
+
+    if (done) {
+      const tail = partial.replace(/\r$/, '').trim();
+      if (tail && headers) {
+        const cells = parseCsvLine(tail, delimiter);
+        const row: DataRow = {};
+        for (let c = 0; c < headers.length; c++) {
+          row[headers[c]] = coerceValue(cells[c] ?? '');
+        }
+        rows.push(row);
+      }
+      break;
+    }
+  }
+
+  if (!headers) {
+    throw new Error('CSV stream contained no header row.');
+  }
+
+  return rows;
+}
+
+async function rowsFromCsvBlobStream(blob: Blob, options?: DatasetParseOptions): Promise<DataRow[]> {
+  const reader = blob.stream().getReader();
+  try {
+    return await rowsFromCsvUtf8Chunks(async () => {
+      const { done, value } = await reader.read();
+      return { chunk: value ?? new Uint8Array(0), done };
+    }, options);
+  } finally {
+    reader.releaseLock?.();
+  }
+}
+
+async function rowsFromFflateZipCsvStream(file: FflateZipFile, options?: DatasetParseOptions): Promise<DataRow[]> {
+  const queue: Uint8Array[] = [];
+  let resolveWait: (() => void) | null = null;
+  let streamDone = false;
+  let streamErr: Error | null = null;
+
+  file.ondata = (err, chunk, final) => {
+    if (err) {
+      streamErr = err;
+      if (resolveWait) {
+        resolveWait();
+        resolveWait = null;
+      }
+      return;
+    }
+    if (chunk?.length) queue.push(chunk);
+    if (final) streamDone = true;
+    if (resolveWait) {
+      resolveWait();
+      resolveWait = null;
+    }
+  };
+  file.start();
+
+  return rowsFromCsvUtf8Chunks(async () => {
+    if (streamErr) throw streamErr;
+    if (queue.length) {
+      return { chunk: queue.shift()!, done: false };
+    }
+    if (streamDone) {
+      return { chunk: new Uint8Array(0), done: true };
+    }
+    await new Promise<void>((r) => {
+      resolveWait = r;
+    });
+    if (streamErr) throw streamErr;
+    if (queue.length) {
+      return { chunk: queue.shift()!, done: false };
+    }
+    return { chunk: new Uint8Array(0), done: streamDone };
+  }, options);
 }
 
 function rowsFromJson(text: string): DataRow[] {
@@ -135,8 +293,11 @@ const DEFAULT_MAX_IMAGE_FILES = 3000;
 const MIN_WORKERS = 2;
 const MAX_WORKERS = 8;
 
-/** Warn in UI when a ZIP is large; the raw .zip bytes are still fully buffered before scan. */
+/** Warn in UI when a ZIP is large (streaming ingest still bounds peak RAM better than a single ArrayBuffer). */
 export const LARGE_ZIP_WARN_BYTES = 512 * 1024 * 1024;
+
+/** Above this size, parse CSV from a ReadableStream instead of `blob.text()` to avoid huge strings (e.g. Fashion-MNIST). */
+export const STREAM_CSV_MIN_BYTES = 8 * 1024 * 1024;
 
 /**
  * Refuse ZIPs larger than this in the browser parser; use Kaggle CLI + “Open folder” instead.
@@ -640,8 +801,8 @@ async function collectDirectoryFiles(
   return files;
 }
 
-async function parseZipAsDataset(
-  zipBuffer: ArrayBuffer,
+async function parseZipAsDatasetFromBlob(
+  blob: Blob,
   sourceName: string,
   options?: DatasetParseOptions
 ): Promise<ParsedDataset> {
@@ -649,40 +810,37 @@ async function parseZipAsDataset(
     stage: 'loading_archive',
     processed: 0,
     total: 0,
-    message: 'Scanning ZIP archive...',
+    message: 'Scanning ZIP archive (streaming)...',
   });
 
-  const u8 = new Uint8Array(zipBuffer);
   const structuredNames: string[] = [];
-  const imageNames: string[] = [];
+  const structuredMap = new Map<string, FflateZipFile>();
+  const imageStreams: FflateZipFile[] = [];
 
-  unzipSync(u8, {
-    filter: (info) => {
-      const n = info.name;
-      if (n.endsWith('/')) return false;
-      if (hasExtension(n, STRUCTURED_EXTENSIONS)) structuredNames.push(n);
-      if (hasExtension(n, IMAGE_EXTENSIONS)) imageNames.push(n);
-      return false;
-    },
+  const uz = new Unzip((file) => {
+    const name = file.name;
+    if (name.endsWith('/')) return;
+    if (hasExtension(name, STRUCTURED_EXTENSIONS)) {
+      structuredNames.push(name);
+      structuredMap.set(name, file as FflateZipFile);
+    }
+    if (hasExtension(name, IMAGE_EXTENSIONS)) {
+      imageStreams.push(file as FflateZipFile);
+    }
   });
+  uz.register(UnzipInflate);
+  await streamBlobIntoUnzip(blob, uz);
 
-  const structuredEntryName =
-    structuredNames.find((n) => n.toLowerCase().endsWith('.csv')) ??
-    structuredNames.find((n) => n.toLowerCase().endsWith('.json')) ??
-    structuredNames[0];
+  const structuredEntryName = pickPrimaryStructuredZipEntry(structuredNames);
 
   if (structuredEntryName) {
     const lower = structuredEntryName.toLowerCase();
-    const extracted = unzipSync(u8, {
-      filter: (info) => info.name === structuredEntryName,
-    });
-    const raw = extracted[structuredEntryName];
-    if (!raw) {
+    const structFile = structuredMap.get(structuredEntryName);
+    if (!structFile) {
       throw new Error(`ZIP is missing expected entry "${structuredEntryName}".`);
     }
-    const text = strFromU8(raw);
     if (lower.endsWith('.csv')) {
-      const rows = rowsFromCsv(text);
+      const rows = await rowsFromFflateZipCsvStream(structFile, options);
       emitParseProgress(options, {
         stage: 'completed',
         processed: rows.length,
@@ -698,6 +856,8 @@ async function parseZipAsDataset(
       };
     }
     if (lower.endsWith('.json')) {
+      const raw = await readFflateStreamFile(structFile);
+      const text = strFromU8(raw);
       const rows = rowsFromJson(text);
       emitParseProgress(options, {
         stage: 'completed',
@@ -715,19 +875,9 @@ async function parseZipAsDataset(
     }
   }
 
-  const streams: FflateZipFile[] = [];
-  const uz = new Unzip((file) => {
-    const name = file.name;
-    if (name.endsWith('/')) return;
-    if (!hasExtension(name, IMAGE_EXTENSIONS)) return;
-    streams.push(file as FflateZipFile);
-  });
-  uz.register(UnzipInflate);
-  uz.push(u8, true);
-
-  streams.sort((a, b) => a.name.localeCompare(b.name));
+  imageStreams.sort((a, b) => a.name.localeCompare(b.name));
   const maxImageFiles = Math.max(1, options?.maxImageFiles ?? DEFAULT_MAX_IMAGE_FILES);
-  const cappedStreams = streams.slice(0, maxImageFiles);
+  const cappedStreams = imageStreams.slice(0, maxImageFiles);
 
   const zipImageEntries: ZipImageEntry[] = cappedStreams.map((file) => ({
     name: file.name,
@@ -738,12 +888,12 @@ async function parseZipAsDataset(
     },
   }));
 
-  if (imageNames.length > maxImageFiles) {
+  if (imageStreams.length > maxImageFiles) {
     emitParseProgress(options, {
       stage: 'discovering_files',
       processed: 0,
       total: cappedStreams.length,
-      message: `Found ${imageNames.length.toLocaleString()} images. Processing first ${maxImageFiles.toLocaleString()} to limit memory use.`,
+      message: `Found ${imageStreams.length.toLocaleString()} images. Processing first ${maxImageFiles.toLocaleString()} to limit memory use.`,
     });
   }
 
@@ -771,8 +921,10 @@ export async function parseDatasetBlob(
 ): Promise<ParsedDataset> {
   const lower = filename.toLowerCase();
   if (lower.endsWith('.csv')) {
-    const text = await blob.text();
-    const rows = rowsFromCsv(text);
+    const rows =
+      blob.size >= STREAM_CSV_MIN_BYTES && typeof blob.stream === 'function'
+        ? await rowsFromCsvBlobStream(blob, options)
+        : rowsFromCsv(await blob.text());
     emitParseProgress(options, {
       stage: 'completed',
       processed: rows.length,
@@ -818,8 +970,7 @@ export async function parseDatasetBlob(
         message: `Large archive (${(size / (1024 * 1024)).toFixed(0)}MB). Unpacking may use a lot of memory; prefer CLI + folder for huge datasets.`,
       });
     }
-    const buffer = await blob.arrayBuffer();
-    return parseZipAsDataset(buffer, filename, options);
+    return parseZipAsDatasetFromBlob(blob, filename, options);
   }
   throw new Error('Unsupported file type. Supported formats: CSV, JSON, ZIP (images or tabular files).');
 }
