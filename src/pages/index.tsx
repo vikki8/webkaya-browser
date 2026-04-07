@@ -459,7 +459,7 @@ function describeDatasetParseProgress(progress: DatasetParseProgress): string {
   }
 }
 
-const RUN_VERSION_STORAGE_KEY = 'webkaya.run_versions.v1';
+const RUN_VERSION_STORAGE_KEY = 'browser-first-ai.run_versions.v1';
 
 function runBaseForDataset(
   dataset: ProcessedDataset,
@@ -2606,8 +2606,8 @@ export default function Studio() {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload.error || payload.detail || 'Kaggle download failed.');
       }
-      const filename = response.headers.get('x-webkaya-filename') || `${selectedKaggleRef.split('/')[1]}.zip`;
-      const sizeHeader = response.headers.get('x-webkaya-content-length') || response.headers.get('content-length');
+      const filename = response.headers.get('x-browser-first-ai-filename') || `${selectedKaggleRef.split('/')[1]}.zip`;
+      const sizeHeader = response.headers.get('x-browser-first-ai-content-length') || response.headers.get('content-length');
       const expectedBytes = sizeHeader ? Number.parseInt(sizeHeader, 10) : NaN;
       if (Number.isFinite(expectedBytes) && expectedBytes > 512 * 1024 * 1024) {
         setKaggleInlineStatus(
@@ -2970,7 +2970,7 @@ export default function Studio() {
   return (
     <>
       <Head>
-        <title>WebKaya - Zero-Cloud ML Studio</title>
+        <title>Browser-First AI Platform</title>
         <meta
           name="description"
           content="Upload or import datasets, preprocess, train models locally, and export/deploy from browser."
@@ -2980,8 +2980,8 @@ export default function Studio() {
       <main className={`${inter.variable} ${jetbrains.variable} mx-auto min-h-screen max-w-[1600px] bg-[#0B0E14] px-6 pb-10 pt-6 text-slate-100`}>
         <header className="relative mb-7 flex min-h-[64px] items-center justify-center">
           <div className="absolute left-[20%] top-1/2 -translate-y-1/2">
-            <div className="text-xl font-bold tracking-tight text-emerald-400">webkaya</div>
-            <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Local-First Studio</div>
+            <div className="text-lg font-bold tracking-tight text-emerald-400">Browser-First AI Platform</div>
+            <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Local-first ML</div>
           </div>
 
           <nav className="wk-nav-pill">
@@ -4665,7 +4665,7 @@ export default function Studio() {
             {/*
         <header className="wk-header">
           <div className="wk-brand-block">
-            <h1>webkaya</h1>
+            <h1>Browser-First AI Platform</h1>
             <p>Local-first ML Studio</p>
           </div>
           <div className="wk-header-nav">

@@ -1,4 +1,4 @@
-# WebKaya
+# Browser-First AI Platform
 
 **Local-first ML studio in the browser** — upload or import datasets (CSV, JSON, ZIP, Kaggle), preprocess, train classical ML and small neural nets with a Web Worker + WASM-style runtime, and export artifacts. Data stays on your machine unless you choose to use server-side API routes (e.g. Kaggle proxy).
 
@@ -56,7 +56,7 @@ npm run test:watch
 
 ## Environment (optional)
 
-- For **Kaggle** downloads through the app’s API routes, you normally authenticate in the UI. Server-side limits can be tuned with env vars documented in [`docs/DEPLOYMENT_AND_DATASETS.md`](docs/DEPLOYMENT_AND_DATASETS.md) (e.g. `WEBKAYA_KAGGLE_MAX_DOWNLOAD_BYTES`, `WEBKAYA_KAGGLE_IDLE_TIMEOUT_MS`).
+- For **Kaggle** downloads through the app’s API routes, you normally authenticate in the UI. Server-side limits can be tuned with env vars documented in [`docs/DEPLOYMENT_AND_DATASETS.md`](docs/DEPLOYMENT_AND_DATASETS.md) (e.g. `BROWSER_FIRST_AI_KAGGLE_MAX_DOWNLOAD_BYTES`, `BROWSER_FIRST_AI_KAGGLE_IDLE_TIMEOUT_MS`).
 - Do **not** commit API tokens; use `.env.local` (gitignored).
 
 ---
@@ -64,7 +64,7 @@ npm run test:watch
 ## Project layout (high level)
 
 ```
-webkaya/
+browser-first-ai-platform/
 ├── src/
 │   ├── engine/           # Training worker, tensor/NN core, algorithms (k-means, RF, NN, …)
 │   ├── data/             # Parsers, preprocessing, IndexedDB helpers

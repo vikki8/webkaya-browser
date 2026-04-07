@@ -19,7 +19,7 @@ function randomOpfsPartName(): string {
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `.webkaya-kaggle-${id}.part`;
+  return `.browser-first-ai-kaggle-${id}.part`;
 }
 
 /**
@@ -37,7 +37,7 @@ export async function streamKaggleDownloadToFile(
     throw new Error('Kaggle download failed: empty response body.');
   }
 
-  const rawLen = response.headers.get('x-webkaya-content-length') || response.headers.get('content-length');
+  const rawLen = response.headers.get('x-browser-first-ai-content-length') || response.headers.get('content-length');
   const totalBytes = rawLen ? Number.parseInt(rawLen, 10) : null;
   const total = totalBytes !== null && Number.isFinite(totalBytes) ? totalBytes : null;
 

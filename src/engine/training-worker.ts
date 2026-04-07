@@ -124,7 +124,7 @@ function post(message: WorkerToTrainingMainMessage) {
 }
 
 function checkpointFileName(runId: string) {
-  return `webkaya-checkpoint-${runId}.json`;
+  return `browser-first-ai-checkpoint-${runId}.json`;
 }
 
 function messageFromError(error: unknown): string {
@@ -794,7 +794,7 @@ async function prepareOpfsBatchCache(
 
   const totalBatches = Math.ceil(dataset.features.length / batchSize);
   const featureCount = dataset.featureNames.length;
-  const directory = await root.getDirectoryHandle(`webkaya-batch-cache-${runId}`, { create: true });
+  const directory = await root.getDirectoryHandle(`browser-first-ai-batch-cache-${runId}`, { create: true });
   const metaHandle = await directory.getFileHandle('meta.json', { create: true });
 
   let shouldRewrite = true;

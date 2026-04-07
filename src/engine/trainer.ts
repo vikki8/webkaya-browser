@@ -168,7 +168,7 @@ function handleExport() {
     layers: graph.layers,
     paramShapes: shapes,
     exportedAt: new Date().toISOString(),
-    framework: 'webkaya',
+    framework: 'browser-first-ai',
     version: '0.1.0',
   };
 

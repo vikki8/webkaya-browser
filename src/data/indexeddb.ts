@@ -1,7 +1,7 @@
 import { ParsedDataset, ProcessedDataset } from '../types/data';
 import { ModelChoice, ModelMetrics, ResolvedModel, TrainingPreferences } from '../types/training-workflow';
 
-const DB_NAME = 'webkaya-local-state';
+const DB_NAME = 'browser-first-ai-local-state';
 const DB_VERSION = 1;
 const STORE_KV = 'kv';
 const STORE_HISTORY = 'training_history';
