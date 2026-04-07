@@ -62,7 +62,7 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
-async function setKv<T>(key: string, value: T): Promise<void> {
+export async function setKv<T>(key: string, value: T): Promise<void> {
   const db = await openDb();
   const tx = db.transaction(STORE_KV, 'readwrite');
   tx.objectStore(STORE_KV).put({ key, value });
@@ -70,7 +70,7 @@ async function setKv<T>(key: string, value: T): Promise<void> {
   db.close();
 }
 
-async function getKv<T>(key: string): Promise<T | null> {
+export async function getKv<T>(key: string): Promise<T | null> {
   const db = await openDb();
   const tx = db.transaction(STORE_KV, 'readonly');
   const request = tx.objectStore(STORE_KV).get(key);
@@ -81,6 +81,14 @@ async function getKv<T>(key: string): Promise<T | null> {
   await transactionDone(tx);
   db.close();
   return result;
+}
+
+export async function deleteKv(key: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(STORE_KV, 'readwrite');
+  tx.objectStore(STORE_KV).delete(key);
+  await transactionDone(tx);
+  db.close();
 }
 
 export async function savePreferencesToIndexedDb(preferences: TrainingPreferences): Promise<void> {

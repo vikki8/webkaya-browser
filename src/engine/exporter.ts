@@ -1,4 +1,4 @@
-import JSZip from 'jszip';
+import { strToU8, zipSync } from 'fflate';
 import { ProcessedDataset } from '../types/data';
 import {
   ExportFormat,
@@ -110,14 +110,18 @@ export async function exportModelArtifact(
   }
 
   const onnxBinary = serializeModelToOnnx(context);
-  const zip = new JSZip();
-  zip.file('model.onnx', onnxBinary);
-  zip.file('metadata.json', buildMetadataJson(context));
-  zip.file('config.json', buildConfigJson(context));
-  zip.file('model.pth.json', buildPthContent(context));
-  const blob = await zip.generateAsync({ type: 'blob' });
+  const zipped = zipSync(
+    {
+      'model.onnx': onnxBinary,
+      'metadata.json': strToU8(buildMetadataJson(context)),
+      'config.json': strToU8(buildConfigJson(context)),
+      'model.pth.json': strToU8(buildPthContent(context)),
+    },
+    { level: 6 }
+  );
+  const zipBuffer = zipped.buffer.slice(zipped.byteOffset, zipped.byteOffset + zipped.byteLength) as ArrayBuffer;
   return {
     filename: `${safeName}.kaya`,
-    blob,
+    blob: new Blob([zipBuffer], { type: 'application/zip' }),
   };
 }

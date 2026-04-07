@@ -18,6 +18,7 @@ import {
   refreshNormalizationPlanLine,
   shouldNormalizeForAlgorithm,
 } from '../data/intelligent-preprocess';
+import { MAX_CLIENT_JSON_PREPROCESS_CELLS, preprocessDataset } from '../data/preprocess';
 import { analyzeDataset, buildColumnProfiles, getAlgorithmCatalogSuggestions } from '../data/insights';
 import { computeClassificationMetrics, computeRegressionMetrics } from '../engine/metrics';
 import { RecurrentClassifierModel, predictRecurrentClassifier } from '../engine/algorithms/recurrent';
@@ -2449,37 +2450,63 @@ export default function Studio() {
     if (!dataset) return;
     const rowsForRequest = advance ? dataset.rows : dataset.rows.slice(0, Math.min(dataset.rows.length, 3000));
     const modeLabel = advance ? 'preprocessing' : 'preview';
+    const cellCount = rowsForRequest.length * Math.max(columns.length, 1);
+    const useClientPreprocess = cellCount > MAX_CLIENT_JSON_PREPROCESS_CELLS;
+
     let localProgress = 4;
     setPreprocessProgress({
       percent: localProgress,
-      message: advance
-        ? 'Sending dataset to server preprocessing engine...'
-        : `Running server preview on ${rowsForRequest.length.toLocaleString()} sampled rows...`,
+      message: useClientPreprocess
+        ? advance
+          ? 'Large dataset: preprocessing in your browser (avoids JSON size limits)...'
+          : `Large dataset: browser preview on ${rowsForRequest.length.toLocaleString()} sampled rows...`
+        : advance
+          ? 'Sending dataset to server preprocessing engine...'
+          : `Running server preview on ${rowsForRequest.length.toLocaleString()} sampled rows...`,
     });
-    const timer = window.setInterval(() => {
-      localProgress = Math.min(94, localProgress + (advance ? 4 : 6));
-      setPreprocessProgress({
-        percent: localProgress,
-        message: `Server ${modeLabel} in progress...`,
-      });
-    }, 1200);
+    const timer = useClientPreprocess
+      ? undefined
+      : window.setInterval(() => {
+          localProgress = Math.min(94, localProgress + (advance ? 4 : 6));
+          setPreprocessProgress({
+            percent: localProgress,
+            message: `Server ${modeLabel} in progress...`,
+          });
+        }, 1200);
 
     try {
       setPreprocessBusy(true);
       setPreprocessError(null);
-      const response = await fetch('/api/dataset/preprocess', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rows: rowsForRequest,
-          columns,
-          config: preprocessConfig,
+
+      let payload: { insights: AutoInsights; previewRows: DataRow[]; processed: ProcessedDataset };
+
+      if (useClientPreprocess) {
+        await new Promise((r) => setTimeout(r, 0));
+        payload = preprocessDataset(rowsForRequest, columns, preprocessConfig, {
           previewOnly: !advance,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.detail || payload.error || 'Preprocessing failed on server.');
+          allowInPlace: false,
+          onProgress: (p) =>
+            setPreprocessProgress({
+              percent: Math.max(4, p.percent),
+              message: p.message,
+            }),
+        });
+      } else {
+        const response = await fetch('/api/dataset/preprocess', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rows: rowsForRequest,
+            columns,
+            config: preprocessConfig,
+            previewOnly: !advance,
+          }),
+        });
+        const json = await response.json();
+        if (!response.ok) {
+          throw new Error(json.detail || json.error || 'Preprocessing failed on server.');
+        }
+        payload = json;
       }
 
       setInsights(payload.insights);
@@ -2496,7 +2523,7 @@ export default function Studio() {
     } catch (error: any) {
       setPreprocessError(error?.message ?? 'Preprocessing failed.');
     } finally {
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
       setPreprocessBusy(false);
       window.setTimeout(() => setPreprocessProgress(null), 800);
     }
@@ -2703,21 +2730,36 @@ export default function Studio() {
         return;
       }
       setDatasetLoadProgress('Preprocessing uploaded evaluation file...');
-      const evalResponse = await fetch('/api/dataset/preprocess', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rows: uploadedEvalDataset.rows,
-          columns: uploadedEvalDataset.columns,
-          config: preprocessConfig,
-          previewOnly: false,
-        }),
-      });
-      const evalPayload = await evalResponse.json().catch(() => ({}));
-      if (!evalResponse.ok || !evalPayload?.processed) {
-        setDatasetLoadProgress(null);
-        setPreprocessError(evalPayload?.detail || evalPayload?.error || 'Could not preprocess uploaded evaluation file.');
-        return;
+      const evalCells = uploadedEvalDataset.rows.length * Math.max(uploadedEvalDataset.columns.length, 1);
+      let evalPayload: { processed?: ProcessedDataset; error?: string; detail?: string };
+      if (evalCells > MAX_CLIENT_JSON_PREPROCESS_CELLS) {
+        try {
+          evalPayload = preprocessDataset(uploadedEvalDataset.rows, uploadedEvalDataset.columns, preprocessConfig, {
+            previewOnly: false,
+            allowInPlace: false,
+          });
+        } catch (e: any) {
+          setDatasetLoadProgress(null);
+          setPreprocessError(e?.message ?? 'Could not preprocess uploaded evaluation file in browser.');
+          return;
+        }
+      } else {
+        const evalResponse = await fetch('/api/dataset/preprocess', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rows: uploadedEvalDataset.rows,
+            columns: uploadedEvalDataset.columns,
+            config: preprocessConfig,
+            previewOnly: false,
+          }),
+        });
+        evalPayload = await evalResponse.json().catch(() => ({}));
+        if (!evalResponse.ok || !evalPayload?.processed) {
+          setDatasetLoadProgress(null);
+          setPreprocessError(evalPayload?.detail || evalPayload?.error || 'Could not preprocess uploaded evaluation file.');
+          return;
+        }
       }
       testingDataset = evalPayload.processed as ProcessedDataset;
       testingRows = uploadedEvalDataset.rows;

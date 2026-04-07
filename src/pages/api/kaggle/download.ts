@@ -2,7 +2,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { Readable, Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import {
-  KaggleAuth,
+  type KaggleAuth,
+  kaggleAuthFingerprint,
   kaggleAuthorization,
   readAuthFromRequest,
   toDatasetRef,
@@ -17,6 +18,18 @@ function readMaxDownloadBytes(): number {
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 0) return 0;
   return n;
+}
+
+function readKaggleRateLimit(): { max: number; windowMs: number } {
+  const maxRaw = process.env.BROWSER_FIRST_AI_KAGGLE_RATE_MAX;
+  const windowRaw = process.env.BROWSER_FIRST_AI_KAGGLE_RATE_WINDOW_MS;
+  const max =
+    maxRaw === undefined || maxRaw === '' ? 6 : Math.max(1, Number.parseInt(maxRaw, 10) || 6);
+  const windowMs =
+    windowRaw === undefined || windowRaw === ''
+      ? 60_000
+      : Math.max(1_000, Number.parseInt(windowRaw, 10) || 60_000);
+  return { max, windowMs };
 }
 
 /** Idle time with no bytes before aborting upstream read. 0 = disabled. Default 5 minutes. */
@@ -157,15 +170,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
   if (!enforceSameOrigin(req, res)) return;
-  if (
-    !applyRateLimit(req, res, {
-      bucket: 'kaggle_download',
-      max: 6,
-      windowMs: 60_000,
-    })
-  ) {
-    return;
-  }
 
   const auth = readAuthFromRequest(req);
   if (!auth) {
@@ -173,6 +177,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       error: 'Kaggle authentication is required (OAuth token or username+API key).',
     });
   }
+
+  const { max: rateMax, windowMs: rateWindowMs } = readKaggleRateLimit();
+  if (
+    !applyRateLimit(req, res, {
+      bucket: 'kaggle_download',
+      max: rateMax,
+      windowMs: rateWindowMs,
+      keySuffix: kaggleAuthFingerprint(auth),
+    })
+  ) {
+    return;
+  }
+
   const authValidation = await validateKaggleAuth(auth);
   if (!authValidation.ok) {
     return res.status(authValidation.status).json({

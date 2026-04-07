@@ -1,8 +1,12 @@
 import {
   Tensor, relu, sigmoid, tanh_, softmax, dropout as dropoutOp,
-  matmul, addBias, conv2d as conv2dOp, maxpool2d as maxpool2dOp,
+  matmul, matmulWithWebGpu, addBias, conv2d as conv2dOp, maxpool2d as maxpool2dOp,
   avgpool2d as avgpool2dOp, flatten as flattenOp
 } from './tensor';
+import type { WebGpuMatmulRuntime } from './webgpu-matmul';
+
+/** Below this many multiply-adds, CPU matmul usually wins over GPU dispatch + readback. */
+const GPU_MATMUL_MIN_FLOPS = 32 * 1024;
 
 export interface Layer {
   forward(x: Tensor, training?: boolean): Tensor;
@@ -23,6 +27,24 @@ export class Linear implements Layer {
 
   forward(x: Tensor): Tensor {
     return addBias(matmul(x, this.weight), this.bias);
+  }
+
+  /**
+   * WebGPU WGSL matmul for z = x @ W, then bias on CPU. Backward uses existing autograd.
+   */
+  async forwardAsync(x: Tensor, gpu: WebGpuMatmulRuntime | null): Promise<Tensor> {
+    if (!gpu || gpu.lost) return this.forward(x);
+    const [M, Kx] = x.shape;
+    const [Kw, N] = this.weight.shape;
+    if (Kx !== Kw) throw new Error(`Linear expected K=${Kw} but input has ${Kx} features.`);
+    const flops = M * Kx * N;
+    if (flops < GPU_MATMUL_MIN_FLOPS) return this.forward(x);
+    try {
+      const z = await matmulWithWebGpu(x, this.weight, gpu);
+      return addBias(z, this.bias);
+    } catch {
+      return this.forward(x);
+    }
   }
 
   parameters(): Tensor[] {
@@ -496,6 +518,21 @@ export class Sequential {
     let out = x;
     for (const layer of this.layers) {
       out = layer.forward(out, training);
+    }
+    return out;
+  }
+
+  /**
+   * Runs {@link Linear} layers on the GPU (matmul) when `gpu` is non-null; other layers on CPU.
+   */
+  async forwardAsync(x: Tensor, training = true, gpu: WebGpuMatmulRuntime | null): Promise<Tensor> {
+    let out = x;
+    for (const layer of this.layers) {
+      if (layer instanceof Linear && gpu && !gpu.lost) {
+        out = await layer.forwardAsync(out, gpu);
+      } else {
+        out = layer.forward(out, training);
+      }
     }
     return out;
   }
