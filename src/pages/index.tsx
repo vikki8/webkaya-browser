@@ -3019,9 +3019,10 @@ export default function Studio() {
             <div className="mb-5 rounded-2xl border border-white/10 bg-gradient-to-r from-[#131b29] via-[#111723] to-[#0f1521] px-6 py-5 shadow-[0_20px_40px_rgba(0,0,0,0.35)]">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <div className="text-[22px] font-semibold tracking-tight">Unified Studio Dashboard</div>
+                  <div className="text-[22px] font-semibold tracking-tight">Studio dashboard</div>
                   <div className="mt-1 text-base text-slate-400">
-                    High-density local-first workflow inspired by Unsloth-style studio surfaces.
+                    Browser-First AI Platform: one workspace for data, preprocessing, training, and export — local by default,
+                    no account required.
                   </div>
                 </div>
                 <div className="grid min-w-[360px] flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
