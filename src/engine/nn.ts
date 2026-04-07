@@ -172,9 +172,240 @@ export class BatchNorm2d implements Layer {
   }
 }
 
+export class BatchNorm1d implements Layer {
+  gamma: Tensor;
+  beta: Tensor;
+  runningMean: Float32Array;
+  runningVar: Float32Array;
+  numFeatures: number;
+  momentum: number;
+  eps: number;
+  name: string;
+
+  constructor(numFeatures: number, name = 'BatchNorm1d') {
+    this.numFeatures = numFeatures;
+    this.gamma = new Tensor(new Float32Array(numFeatures).fill(1), [numFeatures], true);
+    this.beta = new Tensor(new Float32Array(numFeatures).fill(0), [numFeatures], true);
+    this.runningMean = new Float32Array(numFeatures);
+    this.runningVar = new Float32Array(numFeatures).fill(1);
+    this.momentum = 0.1;
+    this.eps = 1e-5;
+    this.name = name;
+  }
+
+  forward(x: Tensor, training = true): Tensor {
+    if (x.shape.length !== 2 || x.shape[1] !== this.numFeatures) {
+      throw new Error(`BatchNorm1d expects [N, ${this.numFeatures}] input but got [${x.shape.join(', ')}].`);
+    }
+    const [N, F] = x.shape;
+    const out = new Float32Array(x.size);
+
+    for (let f = 0; f < F; f++) {
+      let mean = 0;
+      let variance = 0;
+
+      if (training) {
+        for (let n = 0; n < N; n++) {
+          mean += x.data[n * F + f];
+        }
+        mean /= N;
+        for (let n = 0; n < N; n++) {
+          const diff = x.data[n * F + f] - mean;
+          variance += diff * diff;
+        }
+        variance /= N;
+        this.runningMean[f] = (1 - this.momentum) * this.runningMean[f] + this.momentum * mean;
+        this.runningVar[f] = (1 - this.momentum) * this.runningVar[f] + this.momentum * variance;
+      } else {
+        mean = this.runningMean[f];
+        variance = this.runningVar[f];
+      }
+
+      const invStd = 1 / Math.sqrt(variance + this.eps);
+      for (let n = 0; n < N; n++) {
+        const idx = n * F + f;
+        out[idx] = this.gamma.data[f] * (x.data[idx] - mean) * invStd + this.beta.data[f];
+      }
+    }
+
+    const result = new Tensor(out, [...x.shape], x.requiresGrad || this.gamma.requiresGrad);
+    if (result.requiresGrad) {
+      result.setBackward(() => {
+        if (!result.grad) return;
+        const m = N;
+
+        for (let f = 0; f < F; f++) {
+          let mean = 0;
+          for (let n = 0; n < N; n++) mean += x.data[n * F + f];
+          mean /= m;
+
+          let variance = 0;
+          for (let n = 0; n < N; n++) {
+            const diff = x.data[n * F + f] - mean;
+            variance += diff * diff;
+          }
+          variance /= m;
+          const invStd = 1 / Math.sqrt(variance + this.eps);
+
+          let dGamma = 0;
+          let dBeta = 0;
+          let dVar = 0;
+          let dMean = 0;
+
+          for (let n = 0; n < N; n++) {
+            const idx = n * F + f;
+            const xNorm = (x.data[idx] - mean) * invStd;
+            dGamma += result.grad[idx] * xNorm;
+            dBeta += result.grad[idx];
+            const dxNorm = result.grad[idx] * this.gamma.data[f];
+            dVar += dxNorm * (x.data[idx] - mean) * -0.5 * Math.pow(variance + this.eps, -1.5);
+            dMean += dxNorm * -invStd;
+          }
+
+          if (this.gamma.grad) this.gamma.grad[f] += dGamma;
+          if (this.beta.grad) this.beta.grad[f] += dBeta;
+
+          if (x.grad) {
+            for (let n = 0; n < N; n++) {
+              const idx = n * F + f;
+              const dxNorm = result.grad[idx] * this.gamma.data[f];
+              x.grad[idx] += dxNorm * invStd + dVar * (2 * (x.data[idx] - mean)) / m + dMean / m;
+            }
+          }
+        }
+      }, [x, this.gamma, this.beta]);
+    }
+    return result;
+  }
+
+  parameters(): Tensor[] {
+    return [this.gamma, this.beta];
+  }
+}
+
+export class LayerNorm1d implements Layer {
+  gamma: Tensor;
+  beta: Tensor;
+  numFeatures: number;
+  eps: number;
+  name: string;
+
+  constructor(numFeatures: number, name = 'LayerNorm1d') {
+    this.numFeatures = numFeatures;
+    this.gamma = new Tensor(new Float32Array(numFeatures).fill(1), [numFeatures], true);
+    this.beta = new Tensor(new Float32Array(numFeatures).fill(0), [numFeatures], true);
+    this.eps = 1e-5;
+    this.name = name;
+  }
+
+  forward(x: Tensor): Tensor {
+    if (x.shape.length !== 2 || x.shape[1] !== this.numFeatures) {
+      throw new Error(`LayerNorm1d expects [N, ${this.numFeatures}] input but got [${x.shape.join(', ')}].`);
+    }
+    const [N, F] = x.shape;
+    const out = new Float32Array(x.size);
+    const invStd = new Float32Array(N);
+    const xHat = new Float32Array(x.size);
+
+    for (let n = 0; n < N; n++) {
+      let mean = 0;
+      const rowBase = n * F;
+      for (let f = 0; f < F; f++) mean += x.data[rowBase + f];
+      mean /= F;
+
+      let variance = 0;
+      for (let f = 0; f < F; f++) {
+        const diff = x.data[rowBase + f] - mean;
+        variance += diff * diff;
+      }
+      variance /= F;
+      invStd[n] = 1 / Math.sqrt(variance + this.eps);
+
+      for (let f = 0; f < F; f++) {
+        const idx = rowBase + f;
+        const normalized = (x.data[idx] - mean) * invStd[n];
+        xHat[idx] = normalized;
+        out[idx] = this.gamma.data[f] * normalized + this.beta.data[f];
+      }
+    }
+
+    const result = new Tensor(out, [...x.shape], x.requiresGrad || this.gamma.requiresGrad);
+    if (result.requiresGrad) {
+      result.setBackward(() => {
+        if (!result.grad) return;
+        const dGamma = new Float32Array(F);
+        const dBeta = new Float32Array(F);
+        for (let n = 0; n < N; n++) {
+          const rowBase = n * F;
+          let sumDout = 0;
+          let sumDoutXHat = 0;
+          for (let f = 0; f < F; f++) {
+            const idx = rowBase + f;
+            const gradVal = result.grad[idx];
+            sumDout += gradVal * this.gamma.data[f];
+            sumDoutXHat += gradVal * this.gamma.data[f] * xHat[idx];
+            dGamma[f] += gradVal * xHat[idx];
+            dBeta[f] += gradVal;
+          }
+          if (x.grad) {
+            for (let f = 0; f < F; f++) {
+              const idx = rowBase + f;
+              const doutGamma = result.grad[idx] * this.gamma.data[f];
+              x.grad[idx] += (invStd[n] / F) * (F * doutGamma - sumDout - xHat[idx] * sumDoutXHat);
+            }
+          }
+        }
+
+        if (this.gamma.grad) {
+          for (let f = 0; f < F; f++) this.gamma.grad[f] += dGamma[f];
+        }
+        if (this.beta.grad) {
+          for (let f = 0; f < F; f++) this.beta.grad[f] += dBeta[f];
+        }
+      }, [x, this.gamma, this.beta]);
+    }
+    return result;
+  }
+
+  parameters(): Tensor[] {
+    return [this.gamma, this.beta];
+  }
+}
+
 export class ReLU implements Layer {
   name = 'ReLU';
   forward(x: Tensor): Tensor { return relu(x); }
+  parameters(): Tensor[] { return []; }
+}
+
+export class LeakyReLU implements Layer {
+  name = 'LeakyReLU';
+  negativeSlope: number;
+
+  constructor(negativeSlope = 0.01) {
+    this.negativeSlope = negativeSlope;
+  }
+
+  forward(x: Tensor): Tensor {
+    const out = new Float32Array(x.size);
+    for (let i = 0; i < x.size; i++) {
+      const value = x.data[i];
+      out[i] = value >= 0 ? value : value * this.negativeSlope;
+    }
+    const result = new Tensor(out, [...x.shape], x.requiresGrad);
+    if (x.requiresGrad) {
+      result.setBackward(() => {
+        if (x.grad && result.grad) {
+          for (let i = 0; i < x.size; i++) {
+            const slope = x.data[i] >= 0 ? 1 : this.negativeSlope;
+            x.grad[i] += result.grad[i] * slope;
+          }
+        }
+      }, [x]);
+    }
+    return result;
+  }
+
   parameters(): Tensor[] { return []; }
 }
 
