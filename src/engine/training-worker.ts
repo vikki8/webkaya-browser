@@ -54,6 +54,7 @@ import {
 } from './algorithms';
 import { exportModelArtifact } from './exporter';
 import { WebGpuLinearRuntime } from './webgpu-linear';
+import { WebGpuMatmulRuntime } from './webgpu-matmul';
 import { WasmFunctionRuntime } from './wasm-function-runtime';
 import {
   normalizeWasmEditorState,
@@ -519,7 +520,11 @@ function batchFromIndices(dataset: ProcessedDataset, indices: number[]): { input
   };
 }
 
-function evaluateNeuralNet(model: Sequential, dataset: ProcessedDataset): { predictions: number[]; loss: number; accuracy: number } {
+async function evaluateNeuralNet(
+  model: Sequential,
+  dataset: ProcessedDataset,
+  gpu: WebGpuMatmulRuntime | null
+): Promise<{ predictions: number[]; loss: number; accuracy: number }> {
   const featureCount = dataset.featureNames.length;
   const classes = dataset.labelNames.length;
   const inputsData = new Float32Array(dataset.features.length * featureCount);
@@ -527,7 +532,7 @@ function evaluateNeuralNet(model: Sequential, dataset: ProcessedDataset): { pred
     inputsData.set(dataset.features[i], i * featureCount);
   }
   const inputs = new Tensor(inputsData, [dataset.features.length, featureCount]);
-  const logits = model.forward(inputs, false);
+  const logits = await model.forwardAsync(inputs, false, gpu);
   const loss = crossEntropyLoss(logits, Int32Array.from(dataset.labels)).data[0];
   const predictions = dataset.features.map((_, row) => argmaxRow(logits.data, row, classes));
   let correct = 0;
@@ -926,6 +931,23 @@ async function trainNeuralNetwork(
 
   post({ type: 'status', payload: { phase: 'training_model', message: 'Training neural network...' } });
 
+  let nnGpuMatmul: WebGpuMatmulRuntime | null = null;
+  if (context.backend.kind === 'webgpu') {
+    nnGpuMatmul = await WebGpuMatmulRuntime.create((reason) => {
+      nnGpuMatmul = null;
+      post({
+        type: 'log',
+        payload: { message: `WebGPU matmul device lost: ${reason}. Using CPU matmul for remaining steps.` },
+      });
+    });
+    if (nnGpuMatmul) {
+      post({
+        type: 'log',
+        payload: { message: 'WebGPU WGSL compute matmul enabled for linear layer forwards (backward stays on CPU).' },
+      });
+    }
+  }
+
   for (let epoch = startEpoch; epoch < epochs; epoch++) {
     if (shouldStop) return;
     optimizer.setLearningRate(scheduledLearningRate(context.preferences, epoch, epochs));
@@ -953,7 +975,7 @@ async function trainNeuralNetwork(
       const runShard = async (payload: { inputs: Tensor; targets: Int32Array }) => {
         const { inputs, targets } = payload;
         optimizer.zeroGrad();
-        const logits = nnModel!.forward(inputs, true);
+        const logits = await nnModel!.forwardAsync(inputs, true, nnGpuMatmul);
         const loss = crossEntropyLoss(logits, targets);
         if (!Number.isFinite(loss.data[0])) {
           throw new Error('NaN/Inf detected during training. Try lower learning rate.');
@@ -1062,7 +1084,7 @@ async function trainNeuralNetwork(
   }
 
   post({ type: 'status', payload: { phase: 'optimizing_parameters', message: 'Evaluating model quality...' } });
-  const evaluation = evaluateNeuralNet(nnModel, dataset);
+  const evaluation = await evaluateNeuralNet(nnModel, dataset, nnGpuMatmul);
   const metricsBase = computeClassificationMetrics(dataset.labels, evaluation.predictions, dataset.labelNames.length);
   const importanceScores = firstLayerImportance(nnModel, dataset.featureNames);
   latestMetrics = {

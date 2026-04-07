@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { NextApiRequest } from 'next';
 
 export interface KaggleAuth {
@@ -85,6 +86,11 @@ function validationCacheKey(auth: KaggleAuth): string {
   return auth.mode === 'oauth_token'
     ? `oauth:${auth.apiToken}`
     : `legacy:${auth.username}:${auth.apiKey}`;
+}
+
+/** Stable, non-reversible id for rate-limit keys (never log raw credentials). */
+export function kaggleAuthFingerprint(auth: KaggleAuth): string {
+  return createHash('sha256').update(validationCacheKey(auth)).digest('hex').slice(0, 32);
 }
 
 export function looksLikeKaggleOAuthToken(value: string): boolean {

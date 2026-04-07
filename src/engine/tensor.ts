@@ -3,6 +3,8 @@
  * Operates on Float32Array for WASM SIMD compatibility.
  */
 
+import type { WebGpuMatmulRuntime } from './webgpu-matmul';
+
 type BackwardFn = () => void;
 
 export class Tensor {
@@ -189,6 +191,40 @@ export function matmul(a: Tensor, b: Tensor): Tensor {
   }
 
   const result = new Tensor(out, [M, N], a.requiresGrad || b.requiresGrad);
+  if (result.requiresGrad) {
+    result.setBackward(() => {
+      if (a.grad && result.grad) {
+        for (let m = 0; m < M; m++)
+          for (let k = 0; k < K1; k++) {
+            let sum = 0;
+            for (let n = 0; n < N; n++) sum += result.grad[m * N + n] * b.data[k * N + n];
+            a.grad[m * K1 + k] += sum;
+          }
+      }
+      if (b.grad && result.grad) {
+        for (let k = 0; k < K1; k++)
+          for (let n = 0; n < N; n++) {
+            let sum = 0;
+            for (let m = 0; m < M; m++) sum += a.data[m * K1 + k] * result.grad[m * N + n];
+            b.grad[k * N + n] += sum;
+          }
+      }
+    }, [a, b]);
+  }
+  return result;
+}
+
+/**
+ * GPU forward for C = A @ B (WGSL compute), same CPU backward as {@link matmul}.
+ * Use from the training worker when WebGPU is available; falls back via caller.
+ */
+export async function matmulWithWebGpu(a: Tensor, b: Tensor, gpu: WebGpuMatmulRuntime): Promise<Tensor> {
+  if (a.ndim !== 2 || b.ndim !== 2) throw new Error('matmul requires 2D tensors');
+  const [M, K1] = a.shape;
+  const [K2, N] = b.shape;
+  if (K1 !== K2) throw new Error(`matmul inner dims mismatch: ${K1} vs ${K2}`);
+  const raw = await gpu.matmul(a.data, b.data, M, K1, N);
+  const result = new Tensor(raw, [M, N], a.requiresGrad || b.requiresGrad);
   if (result.requiresGrad) {
     result.setBackward(() => {
       if (a.grad && result.grad) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AutoInsights, DataRow, PreprocessingConfig, ProcessedDataset } from '../../types/data';
-import { DataPreprocessProgress, MainToDataWorkerMessage, WorkerToDataMainMessage } from '../../types/data-worker';
+import { DataPreprocessProgress } from '../../types/data-worker';
+import { MainToDataWorkerMessage, WorkerToDataMainMessage } from '../../types/workerMessages';
 
 interface DataWorkerResult {
   insights: AutoInsights;

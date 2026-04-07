@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import JSZip from 'jszip';
+import { unzipSync } from 'fflate';
 import { exportModelArtifact } from '../src/engine/exporter';
 import { onnx } from 'onnx-proto';
 
@@ -140,13 +140,12 @@ describe('model exporter', () => {
     const { filename, blob } = await exportModelArtifact('kaya', context);
     expect(filename.endsWith('.kaya')).toBe(true);
 
-    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-    const onnxEntry = zip.file('model.onnx');
-    expect(onnxEntry).toBeTruthy();
-    expect(zip.file('metadata.json')).toBeTruthy();
-    expect(zip.file('config.json')).toBeTruthy();
+    const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+    expect(files['model.onnx']).toBeTruthy();
+    expect(files['metadata.json']).toBeTruthy();
+    expect(files['config.json']).toBeTruthy();
 
-    const onnxBytes = await onnxEntry!.async('uint8array');
+    const onnxBytes = files['model.onnx']!;
     const model = onnx.ModelProto.decode(onnxBytes);
     expect(model.graph?.node?.length).toBeGreaterThan(0);
     expect(model.opsetImport?.length).toBeGreaterThan(0);

@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { deleteKv, getKv, setKv } from '../data/indexeddb';
 import { LayerConfig, ModelGraph, LayerType, LAYER_DEFAULTS } from '../types/model';
 import { TrainingConfig, TrainingState, TrainingMetrics, DEFAULT_TRAINING_CONFIG } from '../types/training';
 import { v4 as uuid } from 'uuid';
@@ -75,7 +77,19 @@ const PRESET_LINEAR: LayerConfig[] = [
   { id: uuid(), type: 'linear', name: 'fc2', params: { inFeatures: 128, outFeatures: 10 } },
 ];
 
-export const useStudioStore = create<StudioStore>((set, get) => ({
+const idbPersistStorage = {
+  getItem: async (name: string): Promise<string | null> => (await getKv<string>(`persist:${name}`)) ?? null,
+  setItem: async (name: string, value: string) => {
+    await setKv(`persist:${name}`, value);
+  },
+  removeItem: async (name: string) => {
+    await deleteKv(`persist:${name}`);
+  },
+};
+
+export const useStudioStore = create<StudioStore>()(
+  persist(
+    (set) => ({
   graph: { name: 'MyModel', layers: [...PRESET_SIMPLE_CNN] },
 
   addLayer: (type) => set(s => ({
@@ -156,4 +170,15 @@ export const useStudioStore = create<StudioStore>((set, get) => ({
   logs: [],
   addLog: (msg) => set(s => ({ logs: [...s.logs.slice(-200), `[${new Date().toLocaleTimeString()}] ${msg}`] })),
   clearLogs: () => set({ logs: [] }),
-}));
+}),
+    {
+      name: 'studio-v1',
+      storage: idbPersistStorage as any,
+      partialize: (state) => ({
+        graph: state.graph,
+        config: state.config,
+      }),
+      skipHydration: true,
+    }
+  )
+);

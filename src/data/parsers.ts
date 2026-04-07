@@ -1,4 +1,4 @@
-import JSZip from 'jszip';
+import { Unzip, UnzipInflate, strFromU8, unzipSync } from 'fflate';
 import { DataRow, ParsedDataset } from '../types/data';
 
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
@@ -135,12 +135,12 @@ const DEFAULT_MAX_IMAGE_FILES = 3000;
 const MIN_WORKERS = 2;
 const MAX_WORKERS = 8;
 
-/** Warn in UI when a ZIP is large; parsing still uses a full in-memory buffer (JSZip). */
+/** Warn in UI when a ZIP is large; the raw .zip bytes are still fully buffered before scan. */
 export const LARGE_ZIP_WARN_BYTES = 512 * 1024 * 1024;
 
 /**
  * Refuse ZIPs larger than this in the browser parser; use Kaggle CLI + “Open folder” instead.
- * (JSZip loads the full archive into memory.)
+ * The archive bytes are held in memory once; fflate inflates one CSV/JSON or one image stream at a time.
  */
 export const BROWSER_ZIP_PARSE_MAX_BYTES = 6 * 1024 * 1024 * 1024;
 
@@ -172,6 +172,42 @@ interface DirectoryDataFile {
 }
 
 let nextImageTaskId = 1;
+
+/** fflate streaming ZIP member (inflation runs only after `start()`). */
+type FflateZipFile = {
+  name: string;
+  start: () => void;
+  ondata: ((err: Error | null, data: Uint8Array, final: boolean) => void) | null;
+};
+
+export interface ZipImageEntry {
+  name: string;
+  readArrayBuffer: () => Promise<ArrayBuffer>;
+}
+
+function readFflateStreamFile(file: FflateZipFile): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    file.ondata = (err, chunk, final) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      if (chunk?.length) chunks.push(chunk);
+      if (final) {
+        const total = chunks.reduce((sum, c) => sum + c.length, 0);
+        const out = new Uint8Array(total);
+        let offset = 0;
+        for (const c of chunks) {
+          out.set(c, offset);
+          offset += c.length;
+        }
+        resolve(out);
+      }
+    };
+    file.start();
+  });
+}
 
 function emitParseProgress(
   options: DatasetParseOptions | undefined,
@@ -312,7 +348,7 @@ async function processImageViaWorker(
 }
 
 async function rowsFromImageEntriesSequential(
-  imageEntries: JSZip.JSZipObject[],
+  imageEntries: ZipImageEntry[],
   options?: DatasetParseOptions
 ): Promise<DataRow[]> {
   const rows: DataRow[] = [];
@@ -329,7 +365,8 @@ async function rowsFromImageEntriesSequential(
       message: `Extracting image ${i + 1}/${total}...`,
     });
 
-    const blob = await entry.async('blob');
+    const buffer = await entry.readArrayBuffer();
+    const blob = new Blob([buffer]);
     const stats = await decodeImageToFeatures(blob);
     rows.push({
       label: imageLabelFromEntryName(entry.name),
@@ -358,7 +395,7 @@ async function rowsFromImageEntriesSequential(
 }
 
 async function rowsFromImageEntriesWithWorkers(
-  imageEntries: JSZip.JSZipObject[],
+  imageEntries: ZipImageEntry[],
   options?: DatasetParseOptions
 ): Promise<DataRow[]> {
   const total = imageEntries.length;
@@ -384,7 +421,7 @@ async function rowsFromImageEntriesWithWorkers(
         message: `Extracting image ${index + 1}/${total}...`,
       });
 
-      const buffer = await entry.async('arraybuffer');
+      const buffer = await entry.readArrayBuffer();
       const row = await processImageViaWorker(
         worker,
         entry.name,
@@ -417,7 +454,7 @@ async function rowsFromImageEntriesWithWorkers(
 }
 
 async function rowsFromImageEntries(
-  imageEntries: JSZip.JSZipObject[],
+  imageEntries: ZipImageEntry[],
   options?: DatasetParseOptions
 ): Promise<DataRow[]> {
   if (!imageEntries.length) {
@@ -612,53 +649,105 @@ async function parseZipAsDataset(
     stage: 'loading_archive',
     processed: 0,
     total: 0,
-    message: 'Loading ZIP archive...',
+    message: 'Scanning ZIP archive...',
   });
 
-  const zip = await JSZip.loadAsync(zipBuffer);
-  const entries = Object.values(zip.files).filter((entry) => !entry.dir);
-  const structuredEntry = entries.find((entry) => hasExtension(entry.name, STRUCTURED_EXTENSIONS));
+  const u8 = new Uint8Array(zipBuffer);
+  const structuredNames: string[] = [];
+  const imageNames: string[] = [];
 
-  if (structuredEntry) {
-    const lower = structuredEntry.name.toLowerCase();
+  unzipSync(u8, {
+    filter: (info) => {
+      const n = info.name;
+      if (n.endsWith('/')) return false;
+      if (hasExtension(n, STRUCTURED_EXTENSIONS)) structuredNames.push(n);
+      if (hasExtension(n, IMAGE_EXTENSIONS)) imageNames.push(n);
+      return false;
+    },
+  });
+
+  const structuredEntryName =
+    structuredNames.find((n) => n.toLowerCase().endsWith('.csv')) ??
+    structuredNames.find((n) => n.toLowerCase().endsWith('.json')) ??
+    structuredNames[0];
+
+  if (structuredEntryName) {
+    const lower = structuredEntryName.toLowerCase();
+    const extracted = unzipSync(u8, {
+      filter: (info) => info.name === structuredEntryName,
+    });
+    const raw = extracted[structuredEntryName];
+    if (!raw) {
+      throw new Error(`ZIP is missing expected entry "${structuredEntryName}".`);
+    }
+    const text = strFromU8(raw);
     if (lower.endsWith('.csv')) {
-      const text = await structuredEntry.async('text');
       const rows = rowsFromCsv(text);
       emitParseProgress(options, {
         stage: 'completed',
         processed: rows.length,
         total: rows.length,
-        currentFile: structuredEntry.name,
-        message: `Parsed ${rows.length.toLocaleString()} rows from ${structuredEntry.name}.`,
+        currentFile: structuredEntryName,
+        message: `Parsed ${rows.length.toLocaleString()} rows from ${structuredEntryName}.`,
       });
       return {
         rows,
         columns: extractColumns(rows),
-        source: { type: 'upload', name: sourceName, description: `From ZIP file (${structuredEntry.name})` },
+        source: { type: 'upload', name: sourceName, description: `From ZIP file (${structuredEntryName})` },
         inferredFormat: 'csv',
       };
     }
     if (lower.endsWith('.json')) {
-      const text = await structuredEntry.async('text');
       const rows = rowsFromJson(text);
       emitParseProgress(options, {
         stage: 'completed',
         processed: rows.length,
         total: rows.length,
-        currentFile: structuredEntry.name,
-        message: `Parsed ${rows.length.toLocaleString()} rows from ${structuredEntry.name}.`,
+        currentFile: structuredEntryName,
+        message: `Parsed ${rows.length.toLocaleString()} rows from ${structuredEntryName}.`,
       });
       return {
         rows,
         columns: extractColumns(rows),
-        source: { type: 'upload', name: sourceName, description: `From ZIP file (${structuredEntry.name})` },
+        source: { type: 'upload', name: sourceName, description: `From ZIP file (${structuredEntryName})` },
         inferredFormat: 'json',
       };
     }
   }
 
-  const imageEntries = entries.filter((entry) => hasExtension(entry.name, IMAGE_EXTENSIONS));
-  const rows = await rowsFromImageEntries(imageEntries, options);
+  const streams: FflateZipFile[] = [];
+  const uz = new Unzip((file) => {
+    const name = file.name;
+    if (name.endsWith('/')) return;
+    if (!hasExtension(name, IMAGE_EXTENSIONS)) return;
+    streams.push(file as FflateZipFile);
+  });
+  uz.register(UnzipInflate);
+  uz.push(u8, true);
+
+  streams.sort((a, b) => a.name.localeCompare(b.name));
+  const maxImageFiles = Math.max(1, options?.maxImageFiles ?? DEFAULT_MAX_IMAGE_FILES);
+  const cappedStreams = streams.slice(0, maxImageFiles);
+
+  const zipImageEntries: ZipImageEntry[] = cappedStreams.map((file) => ({
+    name: file.name,
+    readArrayBuffer: async () => {
+      const out = await readFflateStreamFile(file);
+      const sliced = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
+      return sliced as ArrayBuffer;
+    },
+  }));
+
+  if (imageNames.length > maxImageFiles) {
+    emitParseProgress(options, {
+      stage: 'discovering_files',
+      processed: 0,
+      total: cappedStreams.length,
+      message: `Found ${imageNames.length.toLocaleString()} images. Processing first ${maxImageFiles.toLocaleString()} to limit memory use.`,
+    });
+  }
+
+  const rows = await rowsFromImageEntries(zipImageEntries, options);
   emitParseProgress(options, {
     stage: 'completed',
     processed: rows.length,

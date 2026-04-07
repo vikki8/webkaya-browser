@@ -1,11 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-interface RateLimitOptions {
-  bucket: string;
-  max: number;
-  windowMs: number;
-}
-
 interface RateLimitEntry {
   count: number;
   resetAt: number;
@@ -38,6 +32,14 @@ function pruneBucket(bucketState: Map<string, RateLimitEntry>, now: number) {
   }
 }
 
+export interface RateLimitOptions {
+  bucket: string;
+  max: number;
+  windowMs: number;
+  /** Appended to the client IP so limits are per-user as well as per-IP (e.g. hashed Kaggle credentials). */
+  keySuffix?: string;
+}
+
 export function applyRateLimit(req: NextApiRequest, res: NextApiResponse, options: RateLimitOptions): boolean {
   const now = Date.now();
   let bucketState = rateLimitBuckets.get(options.bucket);
@@ -47,7 +49,8 @@ export function applyRateLimit(req: NextApiRequest, res: NextApiResponse, option
   }
 
   pruneBucket(bucketState, now);
-  const key = getClientIdentifier(req);
+  const base = getClientIdentifier(req);
+  const key = options.keySuffix ? `${base}:${options.keySuffix}` : base;
   const current = bucketState.get(key);
   if (!current || current.resetAt <= now) {
     const next: RateLimitEntry = {

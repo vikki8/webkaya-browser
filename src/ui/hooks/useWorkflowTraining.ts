@@ -3,7 +3,6 @@ import { Capabilities } from '../../engine/capability-detect';
 import { ProcessedDataset } from '../../types/data';
 import {
   ExportFormat,
-  MainToTrainingWorkerMessage,
   DatasetTransferPayload,
   ModelChoice,
   ModelMetrics,
@@ -12,8 +11,8 @@ import {
   TrainingCurvePoint,
   TrainingPhase,
   TrainingPreferences,
-  WorkerToTrainingMainMessage,
 } from '../../types/training-workflow';
+import { MainToTrainingWorkerMessage, WorkerToTrainingMainMessage } from '../../types/workerMessages';
 
 interface WorkflowTrainingState {
   phase: TrainingPhase;
