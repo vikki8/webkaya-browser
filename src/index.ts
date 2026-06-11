@@ -8,6 +8,14 @@ export {
 } from './sandbox/snapshot-store';
 export type { SandboxSnapshot, SnapshotStore } from './sandbox/snapshot-store';
 
+export { ProbeRegistry, TRACEPOINT_LAYOUTS } from './sandbox/probes';
+export type { SandboxTracepoint, ProbeOptions } from './sandbox/probes';
+
+export { EbpfVm, verifyProgram, HELPERS } from './ebpf/vm';
+export type { EbpfEnv, EbpfVmOptions } from './ebpf/vm';
+export { EbpfMap } from './ebpf/maps';
+export { op, insn, assemble } from './ebpf/asm';
+
 export type { SandboxPolicy, PolicyEditorState, PolicyMode } from './types/policy';
 export type { HostToSandboxMessage, SandboxToHostMessage } from './types/protocol';
 

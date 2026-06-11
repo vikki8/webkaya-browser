@@ -56,8 +56,52 @@ const restored = await Sandbox.restore(snap.id);  // resume from a persisted sna
 | **Snapshots** | Sandbox state persists to OPFS (`OpfsSnapshotStore`) with an in-memory fallback. Snapshots carry lineage (`parentSnapshotId`). |
 | **Fork** | Branch a sandbox at its current state; parent and fork diverge independently. |
 | **Replay** | Re-execute the recorded run sequence from initial state in a fresh sandbox — debug a run, verify reproducibility. |
+| **eBPF probes** | Sandboxes expose tracepoints (`run:start`, `run:end`, `snapshot`, `log`) that verified eBPF programs attach to — admission control, metering, and custom observability that travel with the workload. |
 | **Capabilities & backends** | `detectCapabilities()` tiers the device (WebGPU → WebGL2 → WASM SIMD → CPU); `selectComputeBackend()` picks the compute path. |
 | **Hardware monitor** | Samples activity, heap, and thermal pressure (Compute Pressure API) so hosts can throttle or show a resource HUD. |
+
+---
+
+## eBPF probes: the runtime's instrumentation plane
+
+WebKaya treats eBPF as the portable bytecode for governing and observing sandboxes. A userspace eBPF VM (`EbpfVm`) executes probe programs in the browser today; because the bytecode is standard eBPF, the same programs can attach to kernel tracepoints (or ubpf) on the planned server tier — write a probe once, run it wherever the workload lands.
+
+Probes attach to sandbox tracepoints and communicate with the host through BPF-style maps. At `run:start`, a nonzero return value **denies the run** — policy as verified bytecode:
+
+```ts
+import { Sandbox, EbpfMap, op, assemble, HELPERS } from '@webkaya/sandbox';
+
+const box = await Sandbox.create();
+
+// Count every run: map_add(fd 0, key 0, 1)
+const counters = new EbpfMap();
+box.attachProbe('run:start', {
+  name: 'run-counter',
+  maps: [counters],
+  program: assemble([
+    op.movImm(1, 0),            // r1 = map fd
+    op.movImm(2, 0),            // r2 = key
+    op.movImm(3, 1),            // r3 = delta
+    op.call(HELPERS.MAP_ADD),
+    op.movImm(0, 0),            // return 0 = allow
+    op.exit(),
+  ]),
+});
+
+// Admission control: deny guest programs longer than 4 KB
+box.attachProbe('run:start', {
+  name: 'max-code-length',
+  program: assemble([
+    op.ldxdw(2, 1, 8),          // r2 = ctx.codeLength
+    op.movImm(0, 0),
+    op.jleImm(2, 4096, 1),
+    op.movImm(0, 1),            // nonzero = deny
+    op.exit(),
+  ]),
+});
+```
+
+The VM enforces bounded execution: a static verifier pass (register bounds, jump targets, known helpers, must end in `exit`) plus dynamic memory bounds and an instruction budget. Each tracepoint's context struct is documented in `TRACEPOINT_LAYOUTS`. Helpers: `MAP_GET`, `MAP_SET`, `MAP_ADD`, `TRACE`, `KTIME_GET_NS` (maps addressed by fd index — see `src/ebpf/vm.ts` for the ABI note).
 
 ---
 
@@ -68,7 +112,12 @@ src/
 ├── index.ts            # Public API
 ├── sandbox/
 │   ├── sandbox.ts      # Sandbox: create/run/snapshot/fork/restore/replay
+│   ├── probes.ts       # Tracepoints + probe registry (eBPF attach points)
 │   └── snapshot-store.ts  # OPFS + in-memory snapshot persistence
+├── ebpf/
+│   ├── vm.ts           # Userspace eBPF VM: verifier + interpreter + helpers
+│   ├── maps.ts         # BPF-style u64->u64 maps (probe <-> host channel)
+│   └── asm.ts          # Instruction builder for authoring probe programs
 ├── runtime/
 │   ├── policy.ts       # Policy normalize/validate, guest code scanning, policy-as-code
 │   ├── guest-invoker.ts   # Timeout, retry, memory-budget enforcement
@@ -89,7 +138,8 @@ tests/                  # Vitest
 2. **Pyodide guest runtime** — Python as the primary guest language for agent-generated code.
 3. **Rust snapshot core** — copy-on-write state forking and I/O recording compiled to WASM (and natively for the server tier).
 4. **Local file access** — guest-visible, permission-gated views over the File System Access API.
-5. **Server overflow tier** — same SDK API, optional cloud execution for workloads beyond the browser's memory ceiling.
+5. **Server overflow tier** — same SDK API, optional cloud execution for workloads beyond the browser's memory ceiling, with probe programs attaching to kernel eBPF/ubpf instead of the userspace VM.
+6. **Probe toolchain** — load probes compiled from C/Rust (clang `-target bpf` ELF objects) in addition to the built-in assembler.
 
 ## Current limits
 

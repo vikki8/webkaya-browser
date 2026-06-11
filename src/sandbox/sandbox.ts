@@ -3,6 +3,7 @@ import { Capabilities, detectCapabilities } from '../runtime/capability-detect';
 import { ComputeBackendSelection, selectComputeBackend } from '../runtime/backends';
 import { GuestInvoker } from '../runtime/guest-invoker';
 import { assertGuestCodeSafety, normalizePolicy } from '../runtime/policy';
+import { ProbeOptions, ProbeRegistry, SandboxTracepoint } from './probes';
 import {
   createDefaultSnapshotStore,
   SandboxSnapshot,
@@ -81,6 +82,7 @@ export class Sandbox {
   private readonly invoker: GuestInvoker;
   private readonly onLog: (message: string) => void;
   private readonly runLog: RunRecord[] = [];
+  private readonly probes: ProbeRegistry;
   private disposed = false;
 
   private constructor(
@@ -98,6 +100,7 @@ export class Sandbox {
     this.store = options.store ?? createDefaultSnapshotStore();
     this.onLog = options.onLog ?? (() => {});
     this.invoker = new GuestInvoker(this.policy, this.onLog, this.onLog);
+    this.probes = new ProbeRegistry(this.onLog);
   }
 
   static async create(options: SandboxOptions = {}): Promise<Sandbox> {
@@ -139,6 +142,22 @@ export class Sandbox {
   }
 
   /**
+   * Attach a verified eBPF probe program to a sandbox tracepoint. Probes at
+   * `run:start` act as admission control: a nonzero return value denies the
+   * run. Probes at other tracepoints observe and update their maps; return
+   * values are ignored. Throws if the program fails verification.
+   * See TRACEPOINT_LAYOUTS for the context struct each tracepoint exposes.
+   */
+  attachProbe(tracepoint: SandboxTracepoint, options: ProbeOptions): string {
+    this.assertUsable();
+    return this.probes.attach(tracepoint, options);
+  }
+
+  detachProbe(id: string): boolean {
+    return this.probes.detach(id);
+  }
+
+  /**
    * Execute guest code. The guest sees only `ctx` (state, args, log) and a
    * frozen standard library — no network, no DOM, no ambient globals. Failures
    * are returned as `ok: false` results, never thrown.
@@ -146,7 +165,8 @@ export class Sandbox {
   async run(code: string, options: RunOptions = {}): Promise<RunResult> {
     this.assertUsable();
     const runId = newId();
-    const name = options.name ?? `${this.policy.entrypoint}#${this.runLog.length + 1}`;
+    const runIndex = this.runLog.length;
+    const name = options.name ?? `${this.policy.entrypoint}#${runIndex + 1}`;
     const estimatedMemoryMB = options.estimatedMemoryMB ?? 0;
     const logs: string[] = [];
     const startedAt = Date.now();
@@ -165,6 +185,13 @@ export class Sandbox {
         durationMs,
         ok,
       });
+      this.probes.fire('run:end', [
+        BigInt(runIndex),
+        ok ? 1n : 0n,
+        BigInt(Math.round(durationMs * 1000)),
+        BigInt(logs.length),
+        BigInt(code.length),
+      ]);
       return { id: runId, name, ok, value, error, logs, startedAt, durationMs };
     };
 
@@ -176,12 +203,24 @@ export class Sandbox {
       return finish(false, undefined, error instanceof Error ? error.message : String(error));
     }
 
+    const veto = this.probes.fire('run:start', [
+      BigInt(runIndex),
+      BigInt(code.length),
+      BigInt(Math.round(estimatedMemoryMB)),
+      options.args === undefined ? 0n : 1n,
+      BigInt(startedAt),
+    ]);
+    if (veto) {
+      return finish(false, undefined, `Run denied by probe "${veto}".`);
+    }
+
     const ctx: GuestContext = {
       state: workingState,
       args: options.args,
       log: (message: string) => {
         logs.push(String(message));
         this.onLog(String(message));
+        this.probes.fire('log', [BigInt(runIndex), BigInt(String(message).length)]);
       },
     };
 
@@ -214,12 +253,20 @@ export class Sandbox {
       state: structuredClone(this.state),
     };
     await this.store.save(snapshot);
+    let stateBytes = 0;
+    try {
+      stateBytes = JSON.stringify(snapshot.state)?.length ?? 0;
+    } catch {
+      stateBytes = 0;
+    }
+    this.probes.fire('snapshot', [BigInt(this.runLog.length), BigInt(stateBytes)]);
     return snapshot;
   }
 
   /**
    * Branch a new sandbox from the current state. The fork gets its own copy
-   * of state and an empty run log; the parent is untouched.
+   * of state and an empty run log; the parent is untouched. Probes are not
+   * copied — attach them to the fork explicitly if needed.
    */
   async fork(options: Omit<SandboxOptions, 'initialState'> = {}): Promise<Sandbox> {
     this.assertUsable();
