@@ -42,6 +42,9 @@ export {
 export { TieredMemory, MemoryTier } from './memory/tiered-memory';
 export type { KVStore, MemoryBinding } from './memory/tiered-memory';
 
+export { PythonRunner, loadPyodideRuntime, planQuestion } from './python';
+export type { PyodideLike, PythonRunResult, LoadPyodideOptions, PlanResult } from './python';
+
 export { EbpfVm, verifyProgram, HELPERS } from './ebpf/vm';
 export type { EbpfEnv, EbpfVmOptions } from './ebpf/vm';
 export { EbpfMap } from './ebpf/maps';

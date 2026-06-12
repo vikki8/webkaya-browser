@@ -14,6 +14,10 @@
     "./worker": {
       "types": "./dist/runtime/worker/worker-entry.d.ts",
       "import": "./dist/runtime/worker/worker-entry.js"
+    },
+    "./python": {
+      "types": "./dist/python/index.d.ts",
+      "import": "./dist/python/index.js"
     }
   },
   "files": [

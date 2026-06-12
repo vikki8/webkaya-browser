@@ -177,6 +177,9 @@ src/
 │   └── hooks.ts        # Network-policy / load-balancer context layouts + default programs
 ├── memory/
 │   └── tiered-memory.ts   # Redis-shaped global + local KV tiers
+├── python/
+│   ├── pyodide-runner.ts  # Python-over-local-data via Pyodide (CPython/WASM)
+│   └── planner.ts      # Deterministic NL->pandas planner (LLM stand-in)
 ├── runtime/
 │   ├── policy.ts       # Policy normalize/validate, guest code scanning, policy-as-code
 │   ├── guest-exec.ts   # Shared guest compilation (inline + worker)
@@ -206,12 +209,27 @@ await box.run('ctx.state.n = (ctx.state.n || 0) + 1; return ctx.state.n;');
 
 Guest code runs on its own thread; state crosses the boundary by structured clone (so it must be serializable). Because a real `Worker` can be terminated, worker mode enforces a hard timeout — a wedged guest is killed and the worker respawned — which the inline `Function` boundary cannot do. Without a `workerFactory`, worker mode falls back to an in-process loopback that runs the identical worker core (useful in tests and SSR) but provides no thread isolation. Worker mode does not expose the live `ctx.local`/`ctx.global` memory tiers, which require the inline realm.
 
+## Python over local data
+
+The wedge use case — *analyze my data without it leaving the device* — runs Python in the browser via Pyodide:
+
+```ts
+import { loadPyodideRuntime, PythonRunner, planQuestion } from '@webkaya/sandbox/python';
+
+const runner = new PythonRunner(await loadPyodideRuntime());
+await runner.loadDataframe('df', csvTextFromUserFile);          // CSV -> pandas, in-browser
+const plan = planQuestion('average revenue by region', columns); // LLM stand-in (deterministic)
+const result = await runner.run(plan.code);                      // executes locally; data never sent
+```
+
+`planQuestion` is a deterministic NL→pandas planner so the flow works with no API key; in production you swap it for an LLM emitting the same kind of snippet. A complete runnable demo — pick a CSV, ask in plain English, watch the "bytes of your data sent to a server" counter stay at 0 — lives in [`examples/local-data-analyst/`](examples/local-data-analyst/README.md).
+
 ## Roadmap
 
 1. ~~**Web Worker transport**~~ — done: `runtime: 'worker'` runs guests off the main thread behind the `types/protocol.ts` contract.
-2. **Pyodide guest runtime** — Python as the primary guest language for agent-generated code.
-3. **Rust snapshot core** — copy-on-write state forking and I/O recording compiled to WASM (and natively for the server tier).
-4. **Local file access** — guest-visible, permission-gated views over the File System Access API.
+2. ~~**Pyodide guest runtime**~~ — done: `@webkaya/sandbox/python` runs Python over local data; see the demo.
+3. **Pyodide inside the Worker** — run the Python runtime on its own thread under the sandbox's policy and metering.
+4. **Rust snapshot core** — copy-on-write state forking and I/O recording compiled to WASM (and natively for the server tier).
 5. **Server overflow tier** — same SDK API, optional cloud execution for workloads beyond the browser's memory ceiling, with probe programs attaching to kernel eBPF/ubpf instead of the userspace VM.
 6. **Probe toolchain** — load probes compiled from C/Rust (clang `-target bpf` ELF objects) in addition to the built-in assembler.
 
