@@ -23,12 +23,13 @@ Click **Use sample data** (or choose your own CSV), then try a question like
 
 ### Optional: use Claude instead of the built-in planner
 
-Paste an Anthropic API key into the key field and Claude (`claude-opus-4-8`) writes the
-Python instead of the deterministic planner — and gets one shot at repairing code that
-errors. The key is used directly from the browser tab against the Anthropic API (loaded
-from a CDN via an import map) and is never sent anywhere else; only the *question text*
-reaches Claude, never your data. Use a limited, revocable key — client-side use exposes it
-to the page (`dangerouslyAllowBrowser`).
+Paste an Anthropic API key into the key field and the `DataAgent` runs the full
+generate → run → repair loop: Claude (`claude-opus-4-8`) writes the pandas, it executes in
+Pyodide over your DataFrame, and a failing run is repaired with the error fed back (up to 3
+attempts; the attempt count shows in the audit log). The key is used directly from the
+browser tab against the Anthropic API (loaded from a CDN via an import map) and is never
+sent anywhere else; only the *question and error text* reach Claude, never your data. Use a
+limited, revocable key — client-side use exposes it to the page (`dangerouslyAllowBrowser`).
 
 ## What it shows
 

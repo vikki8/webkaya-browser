@@ -42,8 +42,16 @@ export {
 export { TieredMemory, MemoryTier } from './memory/tiered-memory';
 export type { KVStore, MemoryBinding } from './memory/tiered-memory';
 
-export { PythonRunner, loadPyodideRuntime, planQuestion } from './python';
-export type { PyodideLike, PythonRunResult, LoadPyodideOptions, PlanResult } from './python';
+export { PythonRunner, loadPyodideRuntime, planQuestion, DataAgent } from './python';
+export type {
+  PyodideLike,
+  PythonRunResult,
+  LoadPyodideOptions,
+  PlanResult,
+  DataAgentOptions,
+  DataAgentAttempt,
+  DataAgentOutcome,
+} from './python';
 
 export { ClaudeProvider, CodeAnalyst, CodeAgent } from './llm';
 export type {

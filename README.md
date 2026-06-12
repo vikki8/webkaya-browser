@@ -179,7 +179,8 @@ src/
 │   └── tiered-memory.ts   # Redis-shaped global + local KV tiers
 ├── python/
 │   ├── pyodide-runner.ts  # Python-over-local-data via Pyodide (CPython/WASM)
-│   └── planner.ts      # Deterministic NL->pandas planner (LLM stand-in)
+│   ├── planner.ts      # Deterministic NL->pandas planner (LLM stand-in)
+│   └── data-agent.ts   # Claude + Pyodide generate->run->repair loop over local data
 ├── llm/
 │   ├── provider.ts     # Provider-agnostic LlmProvider interface
 │   ├── claude.ts       # ClaudeProvider (official Anthropic SDK, optional peer dep)
@@ -252,6 +253,20 @@ const outcome = await agent.run('summarise ctx.state.rows by region');
 ```
 
 `CodeAgent` closes the loop: Claude writes JS guest code, the sandbox runs it under full policy (eBPF probes, timeout, memory budget, worker isolation), and any failure — a thrown error *or* a probe veto or token-scan rejection — is fed back to the model for another attempt. Every attempt lands in the sandbox's run log, so the whole agent trajectory is replayable. The model only ever sees the task and error text; the data stays in the sandbox. Output uses structured JSON (`output_config.format`) and adaptive thinking by default.
+
+`DataAgent` (`@webkaya/sandbox/python`) is the same loop for the local-data wedge — Claude writes pandas, it runs in Pyodide over the user's in-browser DataFrame, and a failing run is repaired with the error fed back:
+
+```ts
+import { DataAgent, loadPyodideRuntime, PythonRunner } from '@webkaya/sandbox/python';
+import { ClaudeProvider, CodeAnalyst } from '@webkaya/sandbox/llm';
+
+const runner = new PythonRunner(await loadPyodideRuntime());
+await runner.loadDataframe('df', csvText);
+const agent = new DataAgent(new CodeAnalyst({ provider: new ClaudeProvider(), language: 'python' }), runner);
+const outcome = await agent.ask('average revenue by region', columns); // generate -> run -> repair, all local
+```
+
+This is what the [demo](examples/local-data-analyst/README.md) runs when you supply an API key: a question becomes pandas, executes on your machine, and self-corrects — with only the question and error text ever reaching the model.
 
 ## Roadmap
 
