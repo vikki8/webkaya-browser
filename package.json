@@ -6,6 +6,16 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/runtime/worker/worker-entry.d.ts",
+      "import": "./dist/runtime/worker/worker-entry.js"
+    }
+  },
   "files": [
     "dist"
   ],

@@ -55,6 +55,7 @@ const restored = await Sandbox.restore(snap.id);  // resume from a persisted sna
 |---------|--------------|
 | **Policy** | Clamped governance config per sandbox: timeout, retries, memory budget, guest code size, auto-snapshot cadence. Supports "policy as code" via template/eject modes (`resolvePolicy`). |
 | **Guest context** | Guest code receives a single `ctx` object (`state`, `args`, `log`). Code is token-scanned (no `fetch`, `eval`, DOM, ambient globals) and state commits only on success. |
+| **Execution mode** | `runtime: 'inline'` (default) runs guests in the host realm and exposes `ctx.local`/`ctx.global`. `runtime: 'worker'` runs them over the host↔sandbox message protocol — off the main thread with a real `Worker` for true isolation and hard timeout enforcement, or an in-process loopback as a fallback. |
 | **Snapshots** | Sandbox state persists to OPFS (`OpfsSnapshotStore`) with an in-memory fallback. Snapshots carry lineage (`parentSnapshotId`). |
 | **Fork** | Branch a sandbox at its current state; parent and fork diverge independently. |
 | **Replay** | Re-execute the recorded run sequence from initial state in a fresh sandbox — debug a run, verify reproducibility. |
@@ -163,6 +164,7 @@ src/
 ├── index.ts            # Public API
 ├── sandbox/
 │   ├── sandbox.ts      # Sandbox: create/run/snapshot/fork/restore/replay
+│   ├── executor.ts     # Inline vs worker execution seam
 │   ├── probes.ts       # Tracepoints + probe registry (eBPF attach points)
 │   └── snapshot-store.ts  # OPFS + in-memory snapshot persistence
 ├── ebpf/
@@ -177,7 +179,9 @@ src/
 │   └── tiered-memory.ts   # Redis-shaped global + local KV tiers
 ├── runtime/
 │   ├── policy.ts       # Policy normalize/validate, guest code scanning, policy-as-code
+│   ├── guest-exec.ts   # Shared guest compilation (inline + worker)
 │   ├── guest-invoker.ts   # Timeout, retry, memory-budget enforcement
+│   ├── worker/         # Worker transport: core handler, transports, worker entry
 │   ├── capability-detect.ts  # Device tiering (WebGPU/WebGL2/WASM SIMD/CPU)
 │   ├── backends.ts     # Compute backend selection
 │   └── hardware-monitor.ts   # Utilization, thermal, energy sampling
@@ -189,9 +193,22 @@ tests/                  # Vitest
 
 ---
 
+## Worker mode
+
+```ts
+// In an app bundler (Vite/webpack/esbuild), point the sandbox at the worker entry.
+const box = await Sandbox.create({
+  runtime: 'worker',
+  workerFactory: () => new Worker(new URL('@webkaya/sandbox/worker', import.meta.url), { type: 'module' }),
+});
+await box.run('ctx.state.n = (ctx.state.n || 0) + 1; return ctx.state.n;');
+```
+
+Guest code runs on its own thread; state crosses the boundary by structured clone (so it must be serializable). Because a real `Worker` can be terminated, worker mode enforces a hard timeout — a wedged guest is killed and the worker respawned — which the inline `Function` boundary cannot do. Without a `workerFactory`, worker mode falls back to an in-process loopback that runs the identical worker core (useful in tests and SSR) but provides no thread isolation. Worker mode does not expose the live `ctx.local`/`ctx.global` memory tiers, which require the inline realm.
+
 ## Roadmap
 
-1. **Web Worker transport** — move guest execution off the main thread behind the existing `types/protocol.ts` contract.
+1. ~~**Web Worker transport**~~ — done: `runtime: 'worker'` runs guests off the main thread behind the `types/protocol.ts` contract.
 2. **Pyodide guest runtime** — Python as the primary guest language for agent-generated code.
 3. **Rust snapshot core** — copy-on-write state forking and I/O recording compiled to WASM (and natively for the server tier).
 4. **Local file access** — guest-visible, permission-gated views over the File System Access API.
@@ -200,7 +217,7 @@ tests/                  # Vitest
 
 ## Current limits
 
-- v0 guest execution is in-process behind a token-scanned `Function` boundary — an honesty note, not a security claim. Worker isolation is roadmap item 1.
+- Inline guest execution is in-process behind a token-scanned `Function` boundary — an honesty note, not a security claim. `runtime: 'worker'` with a real `Worker` adds genuine thread isolation and hard timeout enforcement; stronger sandboxing (WASM realm per guest) remains future work.
 - Replay re-executes recorded code; it is reproducible for pure state-transforming guests but is not yet bit-perfect deterministic (no interception of time/randomness). Handlers that read `ctx.global` perform shared I/O, so their replay is not deterministic by construction.
 - The fabric, load balancer, and memory tiers are in-process models, not real TCP/SDN/Redis; they exist to prove the programming model and to port onto the server tier unchanged.
 - Snapshot state must be JSON-serializable for OPFS persistence.
