@@ -57,6 +57,8 @@ const restored = await Sandbox.restore(snap.id);  // resume from a persisted sna
 | **Fork** | Branch a sandbox at its current state; parent and fork diverge independently. |
 | **Replay** | Re-execute the recorded run sequence from initial state in a fresh sandbox — debug a run, verify reproducibility. |
 | **eBPF probes** | Sandboxes expose tracepoints (`run:start`, `run:end`, `snapshot`, `log`) that verified eBPF programs attach to — admission control, metering, and custom observability that travel with the workload. |
+| **Fabric & load balancer** | Sandboxes `join` a `SandboxFabric` to get an address and talk to each other; an eBPF network policy gates east-west traffic, and an eBPF `LoadBalancer` distributes ingress requests (and serves static routes like a web server). |
+| **Tiered memory** | Redis-shaped `TieredMemory` gives each sandbox a private `local` tier and a shared `global` tier, exposed to guest code as `ctx.local` / `ctx.global`. |
 | **Capabilities & backends** | `detectCapabilities()` tiers the device (WebGPU → WebGL2 → WASM SIMD → CPU); `selectComputeBackend()` picks the compute path. |
 | **Hardware monitor** | Samples activity, heap, and thermal pressure (Compute Pressure API) so hosts can throttle or show a resource HUD. |
 
@@ -105,6 +107,53 @@ The VM enforces bounded execution: a static verifier pass (register bounds, jump
 
 ---
 
+## Sandbox clusters: fabric, load balancer, tiered memory
+
+Sandboxes are not just isolated runtimes — they form a cluster. They join a fabric, address each other, and sit behind an eBPF load balancer that doubles as a web server. Network policy and load balancing are the same verified eBPF bytecode that governs runs, so the cluster's data plane is programmable end to end:
+
+```
+        ingress request
+              |
+        LoadBalancer  ── serves static routes itself (web-server mode)
+        (eBPF pick)
+          /      \
+   Sandbox A    Sandbox B      east-west A<->B gated by eBPF network policy
+       \           /
+     TieredMemory (global tier, shared)   +   per-sandbox local tier
+```
+
+```ts
+import {
+  Sandbox, SandboxFabric, LoadBalancer, TieredMemory, denyEastWestPolicy,
+} from '@webkaya/sandbox';
+
+const fabric = new SandboxFabric({ policyProgram: denyEastWestPolicy() }); // default-deny between sandboxes
+const memory = new TieredMemory();
+const lb = new LoadBalancer(fabric); // round-robin by default
+
+for (let i = 0; i < 3; i++) {
+  const box = await Sandbox.create({ memory: memory.bindingFor(`backend-${i}`) });
+  const addr = fabric.join(box, {
+    name: `backend-${i}`,
+    // A request handler is a governed run: its probes, timeout, and memory budget all apply.
+    handler: 'const total = ctx.global.incr("requests"); return { servedBy: ctx.args.from, total };',
+  });
+  lb.addBackend(addr);
+}
+
+lb.serveStatic('/health', { status: 'green' });        // edge-terminated, no backend hit
+const res = await lb.handle({ path: '/api', payload: { q: 'hello' } }); // -> round-robined to a backend
+```
+
+- **Fabric** (`SandboxFabric`) — `join` assigns an address (ingress is the reserved address `0`); `request(from, to, …)` delivers traffic and runs the destination's handler. Delivered/dropped counts live in eBPF maps (`deliveredByDst`, `droppedBySrc`).
+- **Network policy** — one eBPF program returns a verdict per hop (`0` allow, nonzero drop) over `[srcAddr, dstAddr, port, length, protocol]`. `denyEastWestPolicy()` blocks sandbox↔sandbox traffic while still permitting ingress — the browser-tier analogue of Cilium default-deny. A crashing policy fails closed.
+- **Load balancer** (`LoadBalancer`) — an eBPF program picks a backend from `[srcAddr, srcPort, dstPort, requestHash, backendCount]`. `roundRobinBalancer()` (default, map-backed counter) and `hashBalancer()` (sticky) ship built in; swap in your own. Static routes are served at the edge, so the LB also acts as a web server / TLS-terminating ingress would.
+- **Tiered memory** (`TieredMemory`) — Redis-shaped (`get/set/del/incr/expire/ttl/keys`) with a shared `global` tier and per-sandbox `local` tiers, surfaced to guests as `ctx.global` / `ctx.local`. In the browser these are synchronous in-memory tiers; the server deployment backs `global` with a real Redis behind the same method names.
+
+These are **in-process models** of TCP/SDN/Redis, not implementations of them — the value is that the same policy/LB bytecode and the same memory API move onto kernel eBPF and real Redis on the server tier without changing application code.
+
+---
+
 ## Project layout
 
 ```
@@ -118,6 +167,12 @@ src/
 │   ├── vm.ts           # Userspace eBPF VM: verifier + interpreter + helpers
 │   ├── maps.ts         # BPF-style u64->u64 maps (probe <-> host channel)
 │   └── asm.ts          # Instruction builder for authoring probe programs
+├── net/
+│   ├── fabric.ts       # SandboxFabric: addressing + east-west delivery + policy
+│   ├── load-balancer.ts   # eBPF load balancer + static web-server routes
+│   └── hooks.ts        # Network-policy / load-balancer context layouts + default programs
+├── memory/
+│   └── tiered-memory.ts   # Redis-shaped global + local KV tiers
 ├── runtime/
 │   ├── policy.ts       # Policy normalize/validate, guest code scanning, policy-as-code
 │   ├── guest-invoker.ts   # Timeout, retry, memory-budget enforcement
@@ -144,7 +199,8 @@ tests/                  # Vitest
 ## Current limits
 
 - v0 guest execution is in-process behind a token-scanned `Function` boundary — an honesty note, not a security claim. Worker isolation is roadmap item 1.
-- Replay re-executes recorded code; it is reproducible for pure state-transforming guests but is not yet bit-perfect deterministic (no interception of time/randomness).
+- Replay re-executes recorded code; it is reproducible for pure state-transforming guests but is not yet bit-perfect deterministic (no interception of time/randomness). Handlers that read `ctx.global` perform shared I/O, so their replay is not deterministic by construction.
+- The fabric, load balancer, and memory tiers are in-process models, not real TCP/SDN/Redis; they exist to prove the programming model and to port onto the server tier unchanged.
 - Snapshot state must be JSON-serializable for OPFS persistence.
 
 ## License

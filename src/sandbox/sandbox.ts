@@ -4,6 +4,7 @@ import { ComputeBackendSelection, selectComputeBackend } from '../runtime/backen
 import { GuestInvoker } from '../runtime/guest-invoker';
 import { assertGuestCodeSafety, normalizePolicy } from '../runtime/policy';
 import { ProbeOptions, ProbeRegistry, SandboxTracepoint } from './probes';
+import { KVStore, MemoryBinding } from '../memory/tiered-memory';
 import {
   createDefaultSnapshotStore,
   SandboxSnapshot,
@@ -15,6 +16,12 @@ export interface SandboxOptions {
   initialState?: Record<string, unknown>;
   store?: SnapshotStore;
   onLog?: (message: string) => void;
+  /**
+   * Tiered key/value memory exposed to guest code as `ctx.local` (private to
+   * this sandbox) and `ctx.global` (shared across the fabric). Reading global
+   * memory is I/O, so it makes replay non-deterministic — see README.
+   */
+  memory?: MemoryBinding;
 }
 
 export interface RunOptions {
@@ -50,6 +57,10 @@ export interface GuestContext {
   state: Record<string, unknown>;
   args: unknown;
   log: (message: string) => void;
+  /** Sandbox-private key/value tier (present only when memory is bound). */
+  local?: KVStore;
+  /** Fabric-shared key/value tier (present only when memory is bound). */
+  global?: KVStore;
 }
 
 function newId(): string {
@@ -83,6 +94,7 @@ export class Sandbox {
   private readonly onLog: (message: string) => void;
   private readonly runLog: RunRecord[] = [];
   private readonly probes: ProbeRegistry;
+  private readonly memory?: MemoryBinding;
   private disposed = false;
 
   private constructor(
@@ -101,6 +113,7 @@ export class Sandbox {
     this.onLog = options.onLog ?? (() => {});
     this.invoker = new GuestInvoker(this.policy, this.onLog, this.onLog);
     this.probes = new ProbeRegistry(this.onLog);
+    this.memory = options.memory;
   }
 
   static async create(options: SandboxOptions = {}): Promise<Sandbox> {
@@ -222,6 +235,8 @@ export class Sandbox {
         this.onLog(String(message));
         this.probes.fire('log', [BigInt(runIndex), BigInt(String(message).length)]);
       },
+      local: this.memory?.local,
+      global: this.memory?.global,
     };
 
     try {
@@ -276,6 +291,7 @@ export class Sandbox {
         policy: options.policy ?? this.policy,
         store: options.store ?? this.store,
         onLog: options.onLog ?? this.onLog,
+        memory: options.memory ?? this.memory,
         initialState: structuredClone(this.state),
       },
       this.capabilities,
@@ -295,6 +311,7 @@ export class Sandbox {
         policy: { ...this.policy, coldStartMs: 0, snapshotEveryNRuns: 0 },
         store: this.store,
         onLog: () => {},
+        memory: this.memory,
         initialState: structuredClone(this.initialState),
       },
       this.capabilities
