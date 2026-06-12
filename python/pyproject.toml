@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webkaya"
+version = "0.1.0"
+description = "Client-side AI agent sandboxes — governed runtimes with snapshots, fork/replay, a userspace eBPF VM, an eBPF-governed fabric and load balancer, and Redis-shaped tiered memory."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "WebKaya" }]
+keywords = ["sandbox", "ai-agents", "ebpf", "load-balancer", "isolation"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/vikki8/webkaya-browser"
+Repository = "https://github.com/vikki8/webkaya-browser"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+webkaya = ["py.typed"]

@@ -8,6 +8,8 @@ This is **not** a security product. The differentiators are **cost** (no per-sec
 
 Stack: **TypeScript**, **Vitest**. No runtime dependencies.
 
+> A Python client mirroring this SDK lives in [`python/`](python/README.md) — `pip install webkaya` for orchestration and local prototyping. The same eBPF bytecode runs in both.
+
 ---
 
 ## Install & develop
