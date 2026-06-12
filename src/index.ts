@@ -17,6 +17,15 @@ export type { SandboxSnapshot, SnapshotStore } from './sandbox/snapshot-store';
 export { ProbeRegistry, TRACEPOINT_LAYOUTS } from './sandbox/probes';
 export type { SandboxTracepoint, ProbeOptions } from './sandbox/probes';
 
+export { InlineExecutor, WorkerExecutor, defaultTransportFactory } from './sandbox/executor';
+export type { SandboxExecutor, ExecRequest, ExecOutcome, WorkerRuntimeMode } from './sandbox/executor';
+export { LoopbackTransport, WorkerTransport } from './runtime/worker/transport';
+export type { Transport } from './runtime/worker/transport';
+export { runGuestRequest } from './runtime/worker/worker-core';
+export type { GuestRunRequest, GuestRunOutcome } from './runtime/worker/worker-core';
+export { installWorkerHandler } from './runtime/worker/worker-entry';
+export type { HostToSandboxMessage, SandboxToHostMessage, GuestRunPolicy } from './types/protocol';
+
 export { SandboxFabric } from './net/fabric';
 export type { NetAddress, NetRequest, NetResponse, JoinOptions } from './net/fabric';
 export { LoadBalancer } from './net/load-balancer';
@@ -33,13 +42,38 @@ export {
 export { TieredMemory, MemoryTier } from './memory/tiered-memory';
 export type { KVStore, MemoryBinding } from './memory/tiered-memory';
 
+export { PythonRunner, loadPyodideRuntime, planQuestion, DataAgent } from './python';
+export type {
+  PyodideLike,
+  PythonRunResult,
+  LoadPyodideOptions,
+  PlanResult,
+  DataAgentOptions,
+  DataAgentAttempt,
+  DataAgentOutcome,
+} from './python';
+
+export { ClaudeProvider, CodeAnalyst, CodeAgent } from './llm';
+export type {
+  LlmProvider,
+  CodeGenRequest,
+  CodeGenResult,
+  LlmUsage,
+  ClaudeProviderOptions,
+  AnalystOptions,
+  AnalysisPlan,
+  GuestLanguage,
+  CodeAgentOptions,
+  AgentAttempt,
+  AgentOutcome,
+} from './llm';
+
 export { EbpfVm, verifyProgram, HELPERS } from './ebpf/vm';
 export type { EbpfEnv, EbpfVmOptions } from './ebpf/vm';
 export { EbpfMap } from './ebpf/maps';
 export { op, insn, assemble } from './ebpf/asm';
 
 export type { SandboxPolicy, PolicyEditorState, PolicyMode } from './types/policy';
-export type { HostToSandboxMessage, SandboxToHostMessage } from './types/protocol';
 
 export {
   DEFAULT_SANDBOX_POLICY,

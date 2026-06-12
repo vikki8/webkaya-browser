@@ -6,9 +6,35 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/runtime/worker/worker-entry.d.ts",
+      "import": "./dist/runtime/worker/worker-entry.js"
+    },
+    "./python": {
+      "types": "./dist/python/index.d.ts",
+      "import": "./dist/python/index.js"
+    },
+    "./llm": {
+      "types": "./dist/llm/index.d.ts",
+      "import": "./dist/llm/index.js"
+    }
+  },
   "files": [
     "dist"
   ],
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.104.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
@@ -16,6 +42,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
     "@types/node": "^20.14.0",
     "happy-dom": "^20.8.9",
     "typescript": "^5.5.0",

@@ -1,10 +1,16 @@
 import { SandboxPolicy } from '../types/policy';
 import { Capabilities, detectCapabilities } from '../runtime/capability-detect';
 import { ComputeBackendSelection, selectComputeBackend } from '../runtime/backends';
-import { GuestInvoker } from '../runtime/guest-invoker';
 import { assertGuestCodeSafety, normalizePolicy } from '../runtime/policy';
 import { ProbeOptions, ProbeRegistry, SandboxTracepoint } from './probes';
 import { KVStore, MemoryBinding } from '../memory/tiered-memory';
+import {
+  InlineExecutor,
+  SandboxExecutor,
+  WorkerExecutor,
+  WorkerRuntimeMode,
+  defaultTransportFactory,
+} from './executor';
 import {
   createDefaultSnapshotStore,
   SandboxSnapshot,
@@ -22,6 +28,16 @@ export interface SandboxOptions {
    * memory is I/O, so it makes replay non-deterministic — see README.
    */
   memory?: MemoryBinding;
+  /**
+   * Execution mode. `inline` (default) runs guests in the host realm and
+   * supports `ctx.local` / `ctx.global`. `worker` runs guests over the message
+   * protocol — off the main thread when `workerFactory` is supplied, otherwise
+   * in an in-process loopback — for real isolation and hard timeout
+   * enforcement, but without the live memory tiers.
+   */
+  runtime?: WorkerRuntimeMode;
+  /** Factory for the backing Web Worker when `runtime: 'worker'`. */
+  workerFactory?: () => Worker;
 }
 
 export interface RunOptions {
@@ -86,15 +102,17 @@ export class Sandbox {
   readonly capabilities: Capabilities | null;
   readonly backend: ComputeBackendSelection;
   readonly parentSnapshotId?: string;
+  readonly runtime: WorkerRuntimeMode;
 
   private state: Record<string, unknown>;
   private readonly initialState: Record<string, unknown>;
   private readonly store: SnapshotStore;
-  private readonly invoker: GuestInvoker;
+  private readonly executor: SandboxExecutor;
   private readonly onLog: (message: string) => void;
   private readonly runLog: RunRecord[] = [];
   private readonly probes: ProbeRegistry;
   private readonly memory?: MemoryBinding;
+  private readonly options: SandboxOptions;
   private disposed = false;
 
   private constructor(
@@ -103,17 +121,31 @@ export class Sandbox {
     parentSnapshotId?: string
   ) {
     this.id = newId();
+    this.options = options;
     this.policy = normalizePolicy(options.policy);
     this.capabilities = capabilities;
     this.backend = selectComputeBackend(capabilities);
     this.parentSnapshotId = parentSnapshotId;
+    this.runtime = options.runtime ?? 'inline';
     this.initialState = structuredClone(options.initialState ?? {});
     this.state = structuredClone(this.initialState);
     this.store = options.store ?? createDefaultSnapshotStore();
     this.onLog = options.onLog ?? (() => {});
-    this.invoker = new GuestInvoker(this.policy, this.onLog, this.onLog);
     this.probes = new ProbeRegistry(this.onLog);
     this.memory = options.memory;
+
+    if (this.runtime === 'worker') {
+      if (this.memory) {
+        this.onLog('Worker runtime does not expose ctx.local/ctx.global; memory tiers are inline-only.');
+      }
+      this.executor = new WorkerExecutor(this.policy, defaultTransportFactory(options.workerFactory));
+    } else {
+      this.executor = new InlineExecutor(
+        this.policy,
+        () => (this.memory ? { local: this.memory.local, global: this.memory.global } : {}),
+        this.onLog
+      );
+    }
   }
 
   static async create(options: SandboxOptions = {}): Promise<Sandbox> {
@@ -227,32 +259,28 @@ export class Sandbox {
       return finish(false, undefined, `Run denied by probe "${veto}".`);
     }
 
-    const ctx: GuestContext = {
-      state: workingState,
+    const outcome = await this.executor.execute({
+      code,
+      name,
       args: options.args,
-      log: (message: string) => {
-        logs.push(String(message));
-        this.onLog(String(message));
-        this.probes.fire('log', [BigInt(runIndex), BigInt(String(message).length)]);
-      },
-      local: this.memory?.local,
-      global: this.memory?.global,
-    };
+      estimatedMemoryMB,
+      state: workingState,
+    });
 
-    try {
-      const value = await this.invoker.invoke(name, estimatedMemoryMB, () => {
-        // eslint-disable-next-line no-new-func
-        const guest = new Function('ctx', `"use strict";\n${code}`);
-        return guest(ctx);
-      });
+    for (const message of outcome.logs) {
+      logs.push(message);
+      this.onLog(message);
+      this.probes.fire('log', [BigInt(runIndex), BigInt(message.length)]);
+    }
+
+    if (outcome.ok) {
       // Commit state only on success so failed runs cannot corrupt the sandbox.
-      this.state = workingState;
-      const result = finish(true, value);
+      this.state = outcome.state;
+      const result = finish(true, outcome.value);
       await this.maybeAutoSnapshot();
       return result;
-    } catch (error) {
-      return finish(false, undefined, error instanceof Error ? error.message : String(error));
     }
+    return finish(false, undefined, outcome.error);
   }
 
   /** Persist current state to the snapshot store and return the snapshot. */
@@ -292,6 +320,8 @@ export class Sandbox {
         store: options.store ?? this.store,
         onLog: options.onLog ?? this.onLog,
         memory: options.memory ?? this.memory,
+        runtime: options.runtime ?? this.runtime,
+        workerFactory: options.workerFactory ?? this.options.workerFactory,
         initialState: structuredClone(this.state),
       },
       this.capabilities,
@@ -332,6 +362,7 @@ export class Sandbox {
   dispose(): void {
     this.disposed = true;
     this.state = {};
+    this.executor.dispose();
   }
 
   private assertUsable(): void {
