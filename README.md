@@ -180,6 +180,11 @@ src/
 ├── python/
 │   ├── pyodide-runner.ts  # Python-over-local-data via Pyodide (CPython/WASM)
 │   └── planner.ts      # Deterministic NL->pandas planner (LLM stand-in)
+├── llm/
+│   ├── provider.ts     # Provider-agnostic LlmProvider interface
+│   ├── claude.ts       # ClaudeProvider (official Anthropic SDK, optional peer dep)
+│   ├── code-analyst.ts # Question + columns -> code (planQuestion's real-model swap)
+│   └── code-agent.ts   # Generate -> run -> repair loop governed by the sandbox
 ├── runtime/
 │   ├── policy.ts       # Policy normalize/validate, guest code scanning, policy-as-code
 │   ├── guest-exec.ts   # Shared guest compilation (inline + worker)
@@ -223,6 +228,30 @@ const result = await runner.run(plan.code);                      // executes loc
 ```
 
 `planQuestion` is a deterministic NL→pandas planner so the flow works with no API key; in production you swap it for an LLM emitting the same kind of snippet. A complete runnable demo — pick a CSV, ask in plain English, watch the "bytes of your data sent to a server" counter stay at 0 — lives in [`examples/local-data-analyst/`](examples/local-data-analyst/README.md).
+
+## LLM-written code (Claude and other models)
+
+`@webkaya/sandbox/llm` lets a real model write the guest code, while the sandbox still governs what runs. The model API is provider-agnostic (`LlmProvider`); `ClaudeProvider` is the first implementation, using the official Anthropic SDK (an **optional** peer dependency — `npm install @anthropic-ai/sdk`, only needed if you use it).
+
+```ts
+import { ClaudeProvider, CodeAnalyst, CodeAgent } from '@webkaya/sandbox/llm';
+import { Sandbox } from '@webkaya/sandbox';
+
+const provider = new ClaudeProvider();              // ANTHROPIC_API_KEY from env; defaults to claude-opus-4-8
+
+// CodeAnalyst: question + columns -> code (the production swap for planQuestion).
+const analyst = new CodeAnalyst({ provider, language: 'python' });
+const plan = await analyst.plan('average revenue by region', columns);
+await pythonRunner.run(plan.code);                  // runs locally; data never leaves the device
+
+// CodeAgent: the full generate -> run -> repair loop, governed by the sandbox.
+const box = await Sandbox.create({ runtime: 'worker' });
+box.attachProbe('run:start', { name: 'gate', program });   // probe vetoes become repair signals
+const agent = new CodeAgent(provider, box, { maxAttempts: 3 });
+const outcome = await agent.run('summarise ctx.state.rows by region');
+```
+
+`CodeAgent` closes the loop: Claude writes JS guest code, the sandbox runs it under full policy (eBPF probes, timeout, memory budget, worker isolation), and any failure — a thrown error *or* a probe veto or token-scan rejection — is fed back to the model for another attempt. Every attempt lands in the sandbox's run log, so the whole agent trajectory is replayable. The model only ever sees the task and error text; the data stays in the sandbox. Output uses structured JSON (`output_config.format`) and adaptive thinking by default.
 
 ## Roadmap
 

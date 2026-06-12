@@ -21,6 +21,15 @@ npx serve .            # or: python3 -m http.server
 Click **Use sample data** (or choose your own CSV), then try a question like
 "average revenue by region" or "top 3 country by revenue".
 
+### Optional: use Claude instead of the built-in planner
+
+Paste an Anthropic API key into the key field and Claude (`claude-opus-4-8`) writes the
+Python instead of the deterministic planner — and gets one shot at repairing code that
+errors. The key is used directly from the browser tab against the Anthropic API (loaded
+from a CDN via an import map) and is never sent anywhere else; only the *question text*
+reaches Claude, never your data. Use a limited, revocable key — client-side use exposes it
+to the page (`dangerouslyAllowBrowser`).
+
 ## What it shows
 
 - **Locality**: the "bytes of your data sent to a server" counter stays at 0. The CSV is
@@ -32,7 +41,8 @@ Click **Use sample data** (or choose your own CSV), then try a question like
 
 ## From demo to production
 
-- Swap `planQuestion` for a real LLM that emits the same kind of pandas snippet; the runner
-  and the privacy invariant are unchanged.
+- The Claude path above already shows the production swap: `CodeAnalyst` from
+  `@webkaya/sandbox/llm` replaces `planQuestion` with a real model, runner and privacy
+  invariant unchanged. On a server tier, move the key server-side and call the same API.
 - Run Pyodide inside the Worker transport (`Sandbox` with `runtime: 'worker'`) so Python
   executes off the main thread under the sandbox's policy, timeout, and metering.

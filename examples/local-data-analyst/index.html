@@ -44,6 +44,16 @@
 
     <div class="card">
       <div class="row">
+        <input id="apikey" type="password" placeholder="Anthropic API key (optional) — sk-ant-…" autocomplete="off" />
+        <span id="planner-mode" class="muted">Planner: built-in (no key)</span>
+      </div>
+      <p class="muted" style="margin:.4rem 0 0">
+        With a key, Claude (opus-4-8) writes the Python. The key is used directly from this tab against the Anthropic API and is never sent anywhere else — use a limited, revocable key.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="row">
         <input id="question" type="text" placeholder="e.g. average revenue by region" disabled />
         <button id="ask" disabled>Ask</button>
       </div>
@@ -82,6 +92,13 @@
       Only the Pyodide runtime (~10&nbsp;MB) is fetched once from a CDN; your CSV stays on this device.
     </p>
 
+    <script type="importmap">
+      {
+        "imports": {
+          "@anthropic-ai/sdk": "https://esm.sh/@anthropic-ai/sdk@0.104.1"
+        }
+      }
+    </script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>
