@@ -16,3 +16,13 @@ Thumbs.db
 
 # Test / coverage
 coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.pytest_cache/
+.venv/
+venv/
