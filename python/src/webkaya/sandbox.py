@@ -11,14 +11,17 @@ and server tiers).
 from __future__ import annotations
 
 import copy
+import json
 import textwrap
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from .ebpf import EbpfMap
 from .memory import MemoryBinding
 from .policy import SandboxPolicy, assert_guest_code_safety, normalize_policy
+from .probes import ProbeRegistry
 
 _SAFE_BUILTIN_NAMES = (
     # Data / iteration helpers
@@ -131,6 +134,7 @@ class Sandbox:
         self._on_log = on_log or (lambda _msg: None)
         self._memory = memory
         self._run_log: List[RunRecord] = []
+        self._probes = ProbeRegistry(self._on_log)
         self._disposed = False
 
     # --- Parity aliases with the TS async API (create/restore are factories) ---
@@ -151,6 +155,27 @@ class Sandbox:
     def get_run_log(self) -> List[RunRecord]:
         return list(self._run_log)
 
+    def attach_probe(
+        self,
+        tracepoint: str,
+        program: bytes,
+        name: Optional[str] = None,
+        maps: Optional[Sequence[EbpfMap]] = None,
+        fail_closed: bool = False,
+        max_instructions: Optional[int] = None,
+    ) -> str:
+        """Attach a verified eBPF probe to a tracepoint. A ``run:start`` probe
+        returning nonzero denies the run. See ``TRACEPOINT_LAYOUTS`` for the
+        context struct each tracepoint exposes."""
+        self._assert_usable()
+        return self._probes.attach(
+            tracepoint, program, name=name, maps=maps,
+            fail_closed=fail_closed, max_instructions=max_instructions,
+        )
+
+    def detach_probe(self, probe_id: str) -> bool:
+        return self._probes.detach(probe_id)
+
     def run(self, code: str, name: Optional[str] = None, args: Any = None,
             estimated_memory_mb: float = 0) -> RunResult:
         self._assert_usable()
@@ -164,6 +189,10 @@ class Sandbox:
         def finish(ok: bool, value: Any = None, error: Optional[str] = None) -> RunResult:
             duration_ms = (time.perf_counter() - started_clock) * 1000
             self._run_log.append(RunRecord(run_id, name, code, args, estimated_memory_mb, ok))
+            self._probes.fire(
+                "run:end",
+                [run_index, 1 if ok else 0, int(duration_ms * 1000), len(logs), len(code)],
+            )
             return RunResult(run_id, name, ok, value, error, logs, started_at, duration_ms)
 
         try:
@@ -178,9 +207,17 @@ class Sandbox:
         except Exception as error:  # noqa: BLE001
             return finish(False, error=str(error))
 
+        veto = self._probes.fire(
+            "run:start",
+            [run_index, len(code), round(estimated_memory_mb), 0 if args is None else 1, int(started_at * 1000)],
+        )
+        if veto:
+            return finish(False, error=f'Run denied by probe "{veto}".')
+
         def log(message) -> None:
             logs.append(str(message))
             self._on_log(str(message))
+            self._probes.fire("log", [run_index, len(str(message))])
 
         ctx = GuestContext(
             state=working_state,
@@ -217,6 +254,11 @@ class Sandbox:
             state=copy.deepcopy(self._state),
         )
         self._store.save(snapshot)
+        try:
+            state_bytes = len(json.dumps(snapshot.state))
+        except (TypeError, ValueError):
+            state_bytes = 0
+        self._probes.fire("snapshot", [len(self._run_log), state_bytes])
         return snapshot
 
     def fork(self, **overrides) -> "Sandbox":

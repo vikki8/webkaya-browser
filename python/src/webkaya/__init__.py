@@ -47,6 +47,7 @@ from .asm import (
     round_robin_balancer,
 )
 from .net import LoadBalancer, NetResponse, SandboxFabric
+from .probes import TRACEPOINT_LAYOUTS, ProbeRegistry
 from .llm import (
     AgentAttempt,
     AgentOutcome,
@@ -96,6 +97,8 @@ __all__ = [
     "SandboxFabric",
     "LoadBalancer",
     "NetResponse",
+    "ProbeRegistry",
+    "TRACEPOINT_LAYOUTS",
     "LlmProvider",
     "ClaudeProvider",
     "CodeAgent",

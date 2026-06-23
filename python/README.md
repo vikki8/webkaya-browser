@@ -44,8 +44,31 @@ python examples/agent_demo.py
 
 Note: the Python sandbox runs Python guest code with **no imports allowed**
 (stdlib + `ctx` only), so Claude writes plain-Python aggregation over
-`ctx.state`, not pandas. (Sandbox eBPF probes are currently a TypeScript-only
-feature; the Python client ships eBPF for the fabric/load-balancer.)
+`ctx.state`, not pandas.
+
+## Governing runs with eBPF probes
+
+Attach verified eBPF programs to sandbox tracepoints (`run:start`, `run:end`,
+`snapshot`, `log`). A `run:start` probe that returns nonzero **denies** the run —
+admission control as bytecode, independent of the guest:
+
+```python
+from webkaya import Sandbox, EbpfMap
+from webkaya.asm import assemble, call, exit_, mov_imm, MAP_ADD
+
+box = Sandbox.create()
+counter = EbpfMap()
+# map[0] += 1 on every run; return 0 = allow.
+box.attach_probe("run:start", assemble([
+    mov_imm(1, 0), mov_imm(2, 0), mov_imm(3, 1), call(MAP_ADD), mov_imm(0, 0), exit_(),
+]), maps=[counter])
+
+box.run("return 1")
+print(counter.get(0))   # 1
+```
+
+The same standard bytecode runs in the browser SDK, this client, and (later)
+kernel eBPF — write the policy once, enforce it wherever the workload lands.
 
 ## Quickstart
 
