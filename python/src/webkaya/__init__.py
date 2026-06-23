@@ -15,7 +15,8 @@ from .policy import (
     normalize_policy,
     validate_policy,
 )
-from .memory import MemoryBinding, MemoryTier, TieredMemory
+from .memory import KVStore, MemoryBinding, MemoryTier, TieredMemory
+from .redis_memory import RedisMemoryTier
 from .sandbox import (
     GuestContext,
     MemorySnapshotStore,
@@ -47,6 +48,7 @@ from .asm import (
     round_robin_balancer,
 )
 from .net import LoadBalancer, NetResponse, SandboxFabric
+from .probes import TRACEPOINT_LAYOUTS, ProbeRegistry
 from .llm import (
     AgentAttempt,
     AgentOutcome,
@@ -69,6 +71,8 @@ __all__ = [
     "MemoryTier",
     "TieredMemory",
     "MemoryBinding",
+    "KVStore",
+    "RedisMemoryTier",
     "Sandbox",
     "GuestContext",
     "RunResult",
@@ -96,6 +100,8 @@ __all__ = [
     "SandboxFabric",
     "LoadBalancer",
     "NetResponse",
+    "ProbeRegistry",
+    "TRACEPOINT_LAYOUTS",
     "LlmProvider",
     "ClaudeProvider",
     "CodeAgent",

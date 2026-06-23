@@ -44,8 +44,53 @@ python examples/agent_demo.py
 
 Note: the Python sandbox runs Python guest code with **no imports allowed**
 (stdlib + `ctx` only), so Claude writes plain-Python aggregation over
-`ctx.state`, not pandas. (Sandbox eBPF probes are currently a TypeScript-only
-feature; the Python client ships eBPF for the fabric/load-balancer.)
+`ctx.state`, not pandas.
+
+## Governing runs with eBPF probes
+
+Attach verified eBPF programs to sandbox tracepoints (`run:start`, `run:end`,
+`snapshot`, `log`). A `run:start` probe that returns nonzero **denies** the run —
+admission control as bytecode, independent of the guest:
+
+```python
+from webkaya import Sandbox, EbpfMap
+from webkaya.asm import assemble, call, exit_, mov_imm, MAP_ADD
+
+box = Sandbox.create()
+counter = EbpfMap()
+# map[0] += 1 on every run; return 0 = allow.
+box.attach_probe("run:start", assemble([
+    mov_imm(1, 0), mov_imm(2, 0), mov_imm(3, 1), call(MAP_ADD), mov_imm(0, 0), exit_(),
+]), maps=[counter])
+
+box.run("return 1")
+print(counter.get(0))   # 1
+```
+
+The same standard bytecode runs in the browser SDK, this client, and (later)
+kernel eBPF — write the policy once, enforce it wherever the workload lands.
+
+## Distributed global memory (Redis)
+
+The shared/global tier is pluggable. In-process by default; swap in
+`RedisMemoryTier` and the whole fleet coordinates through one real Redis —
+guest code unchanged. `incr` maps to Redis `INCRBY`, which is atomic across
+processes, so a shared counter or budget stays correct under real concurrency.
+
+```python
+from webkaya import TieredMemory, RedisMemoryTier
+
+memory = TieredMemory(shared=RedisMemoryTier(url="redis://localhost:6379/0"))
+# hand memory.binding_for(worker_id) to each sandbox exactly as before
+```
+
+```bash
+pip install webkaya[redis]
+REDIS_URL=redis://localhost:6379/0 python examples/cluster_demo.py   # now distributed
+```
+
+`MemoryTier` (in-process) and `RedisMemoryTier` both satisfy the `KVStore`
+protocol, so they're interchangeable wherever a tier is expected.
 
 ## Quickstart
 
@@ -86,6 +131,18 @@ This client tracks the TypeScript SDK with a few language-driven differences:
 - Guest code is a Python snippet wrapped into a function body, so `return` works as in the TS `Function` boundary. Guests get `ctx.state`, `ctx.args`, `ctx.log`, and — when memory is bound — `ctx.local` and `ctx.shared` (the global tier; named `shared` because `global` is a Python keyword).
 - KV `delete(...)` replaces the TS `del` (a Python keyword).
 - `policy.timeout_ms` is **advisory** in this local engine: CPython cannot preempt a running call, so the timeout is enforced on the browser and server tiers, not here.
+
+## Examples
+
+Runnable scripts in [`examples/`](examples) (each falls back to a built-in
+reference handler when no API key is set, so they run offline):
+
+| Script | Shows |
+|---|---|
+| `agent_demo.py` | Claude writes Python, the sandbox runs it, repair on failure |
+| `cluster_demo.py` | A load-balanced fleet coordinating through global memory (set `REDIS_URL` to distribute) |
+| `cluster_agent_demo.py` | Claude writes the fleet's handler; it's validated, then deployed across the workers |
+| `multi_endpoint_demo.py` | Different Claude-written handlers per route (`/score`, `/refund`, `/audit`), each its own worker pool, one shared memory |
 
 ## Run the tests
 
