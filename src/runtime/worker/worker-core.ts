@@ -1,6 +1,6 @@
-import { GuestRunPolicy } from '../../types/protocol';
-import { assertGuestCodeSafety } from '../policy';
-import { executeGuestCode } from '../guest-exec';
+import { GuestRunPolicy } from '../../types/protocol.js';
+import { assertGuestCodeSafety } from '../policy.js';
+import { executeGuestCode } from '../guest-exec.js';
 
 /**
  * Environment-agnostic guest execution. This runs identically in a Web Worker

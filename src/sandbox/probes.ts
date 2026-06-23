@@ -1,5 +1,5 @@
-import { EbpfMap } from '../ebpf/maps';
-import { EbpfVm } from '../ebpf/vm';
+import { EbpfMap } from '../ebpf/maps.js';
+import { EbpfVm } from '../ebpf/vm.js';
 
 export type SandboxTracepoint = 'run:start' | 'run:end' | 'snapshot' | 'log';
 

@@ -1,4 +1,4 @@
-import { CodeGenResult, LlmProvider } from './provider';
+import { CodeGenResult, LlmProvider } from './provider.js';
 
 /**
  * Turns a natural-language question about a dataset into executable code, using

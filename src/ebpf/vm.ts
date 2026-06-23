@@ -1,4 +1,4 @@
-import { EbpfMap } from './maps';
+import { EbpfMap } from './maps.js';
 
 /**
  * Userspace eBPF virtual machine.

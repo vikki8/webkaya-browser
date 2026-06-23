@@ -1,5 +1,5 @@
-import { HostToSandboxMessage, SandboxToHostMessage } from '../../types/protocol';
-import { runGuestRequest } from './worker-core';
+import { HostToSandboxMessage, SandboxToHostMessage } from '../../types/protocol.js';
+import { runGuestRequest } from './worker-core.js';
 
 /**
  * Carries protocol messages between the host and a sandbox runtime. The two

@@ -1,4 +1,4 @@
-import { Capabilities } from './capability-detect';
+import { Capabilities } from './capability-detect.js';
 
 export type ComputeBackendKind = 'webgpu' | 'webgl2' | 'wasm-simd' | 'cpu';
 

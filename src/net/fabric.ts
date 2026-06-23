@@ -1,7 +1,7 @@
-import { Sandbox } from '../sandbox/sandbox';
-import { EbpfMap } from '../ebpf/maps';
-import { EbpfVm } from '../ebpf/vm';
-import { INGRESS_ADDR } from './hooks';
+import { Sandbox } from '../sandbox/sandbox.js';
+import { EbpfMap } from '../ebpf/maps.js';
+import { EbpfVm } from '../ebpf/vm.js';
+import { INGRESS_ADDR } from './hooks.js';
 
 export type NetAddress = number;
 

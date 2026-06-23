@@ -1,35 +1,35 @@
-export { Sandbox } from './sandbox/sandbox';
+export { Sandbox } from './sandbox/sandbox.js';
 export type {
   SandboxOptions,
   RunOptions,
   RunResult,
   RunRecord,
   GuestContext,
-} from './sandbox/sandbox';
+} from './sandbox/sandbox.js';
 
 export {
   MemorySnapshotStore,
   OpfsSnapshotStore,
   createDefaultSnapshotStore,
-} from './sandbox/snapshot-store';
-export type { SandboxSnapshot, SnapshotStore } from './sandbox/snapshot-store';
+} from './sandbox/snapshot-store.js';
+export type { SandboxSnapshot, SnapshotStore } from './sandbox/snapshot-store.js';
 
-export { ProbeRegistry, TRACEPOINT_LAYOUTS } from './sandbox/probes';
-export type { SandboxTracepoint, ProbeOptions } from './sandbox/probes';
+export { ProbeRegistry, TRACEPOINT_LAYOUTS } from './sandbox/probes.js';
+export type { SandboxTracepoint, ProbeOptions } from './sandbox/probes.js';
 
-export { InlineExecutor, WorkerExecutor, defaultTransportFactory } from './sandbox/executor';
-export type { SandboxExecutor, ExecRequest, ExecOutcome, WorkerRuntimeMode } from './sandbox/executor';
-export { LoopbackTransport, WorkerTransport } from './runtime/worker/transport';
-export type { Transport } from './runtime/worker/transport';
-export { runGuestRequest } from './runtime/worker/worker-core';
-export type { GuestRunRequest, GuestRunOutcome } from './runtime/worker/worker-core';
-export { installWorkerHandler } from './runtime/worker/worker-entry';
-export type { HostToSandboxMessage, SandboxToHostMessage, GuestRunPolicy } from './types/protocol';
+export { InlineExecutor, WorkerExecutor, defaultTransportFactory } from './sandbox/executor.js';
+export type { SandboxExecutor, ExecRequest, ExecOutcome, WorkerRuntimeMode } from './sandbox/executor.js';
+export { LoopbackTransport, WorkerTransport } from './runtime/worker/transport.js';
+export type { Transport } from './runtime/worker/transport.js';
+export { runGuestRequest } from './runtime/worker/worker-core.js';
+export type { GuestRunRequest, GuestRunOutcome } from './runtime/worker/worker-core.js';
+export { installWorkerHandler } from './runtime/worker/worker-entry.js';
+export type { HostToSandboxMessage, SandboxToHostMessage, GuestRunPolicy } from './types/protocol.js';
 
-export { SandboxFabric } from './net/fabric';
-export type { NetAddress, NetRequest, NetResponse, JoinOptions } from './net/fabric';
-export { LoadBalancer } from './net/load-balancer';
-export type { IngressRequest, LoadBalancerOptions } from './net/load-balancer';
+export { SandboxFabric } from './net/fabric.js';
+export type { NetAddress, NetRequest, NetResponse, JoinOptions } from './net/fabric.js';
+export { LoadBalancer } from './net/load-balancer.js';
+export type { IngressRequest, LoadBalancerOptions } from './net/load-balancer.js';
 export {
   NETWORK_POLICY_LAYOUT,
   LOAD_BALANCER_LAYOUT,
@@ -37,12 +37,12 @@ export {
   denyEastWestPolicy,
   roundRobinBalancer,
   hashBalancer,
-} from './net/hooks';
+} from './net/hooks.js';
 
-export { TieredMemory, MemoryTier } from './memory/tiered-memory';
-export type { KVStore, MemoryBinding } from './memory/tiered-memory';
+export { TieredMemory, MemoryTier } from './memory/tiered-memory.js';
+export type { KVStore, MemoryBinding } from './memory/tiered-memory.js';
 
-export { PythonRunner, loadPyodideRuntime, planQuestion, DataAgent } from './python';
+export { PythonRunner, loadPyodideRuntime, planQuestion, DataAgent } from './python/index.js';
 export type {
   PyodideLike,
   PythonRunResult,
@@ -51,9 +51,9 @@ export type {
   DataAgentOptions,
   DataAgentAttempt,
   DataAgentOutcome,
-} from './python';
+} from './python/index.js';
 
-export { ClaudeProvider, CodeAnalyst, CodeAgent } from './llm';
+export { ClaudeProvider, CodeAnalyst, CodeAgent } from './llm/index.js';
 export type {
   LlmProvider,
   CodeGenRequest,
@@ -66,14 +66,14 @@ export type {
   CodeAgentOptions,
   AgentAttempt,
   AgentOutcome,
-} from './llm';
+} from './llm/index.js';
 
-export { EbpfVm, verifyProgram, HELPERS } from './ebpf/vm';
-export type { EbpfEnv, EbpfVmOptions } from './ebpf/vm';
-export { EbpfMap } from './ebpf/maps';
-export { op, insn, assemble } from './ebpf/asm';
+export { EbpfVm, verifyProgram, HELPERS } from './ebpf/vm.js';
+export type { EbpfEnv, EbpfVmOptions } from './ebpf/vm.js';
+export { EbpfMap } from './ebpf/maps.js';
+export { op, insn, assemble } from './ebpf/asm.js';
 
-export type { SandboxPolicy, PolicyEditorState, PolicyMode } from './types/policy';
+export type { SandboxPolicy, PolicyEditorState, PolicyMode } from './types/policy.js';
 
 export {
   DEFAULT_SANDBOX_POLICY,
@@ -85,17 +85,17 @@ export {
   normalizePolicyEditorState,
   compilePolicyCode,
   resolvePolicy,
-} from './runtime/policy';
+} from './runtime/policy.js';
 
-export { GuestInvoker } from './runtime/guest-invoker';
-export { detectCapabilities } from './runtime/capability-detect';
-export type { Capabilities } from './runtime/capability-detect';
-export { selectComputeBackend } from './runtime/backends';
-export type { ComputeBackendKind, ComputeBackendSelection } from './runtime/backends';
-export { HardwareMonitor } from './runtime/hardware-monitor';
+export { GuestInvoker } from './runtime/guest-invoker.js';
+export { detectCapabilities } from './runtime/capability-detect.js';
+export type { Capabilities } from './runtime/capability-detect.js';
+export { selectComputeBackend } from './runtime/backends.js';
+export type { ComputeBackendKind, ComputeBackendSelection } from './runtime/backends.js';
+export { HardwareMonitor } from './runtime/hardware-monitor.js';
 export type {
   HardwareMonitorMetrics,
   RuntimeActivitySnapshot,
   ThermalPressureState,
   EnergyImpactLevel,
-} from './runtime/hardware-monitor';
+} from './runtime/hardware-monitor.js';

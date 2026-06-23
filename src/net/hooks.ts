@@ -1,5 +1,5 @@
-import { assemble, op } from '../ebpf/asm';
-import { HELPERS } from '../ebpf/vm';
+import { assemble, op } from '../ebpf/asm.js';
+import { HELPERS } from '../ebpf/vm.js';
 
 /**
  * Fabric-level eBPF hooks. Unlike sandbox tracepoints, these run at the

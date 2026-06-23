@@ -9,8 +9,8 @@
  * the loopback transport runs in-process, so guest semantics are identical
  * whether or not execution is isolated on its own thread.
  */
-import { HostToSandboxMessage, SandboxToHostMessage } from '../../types/protocol';
-import { runGuestRequest } from './worker-core';
+import { HostToSandboxMessage, SandboxToHostMessage } from '../../types/protocol.js';
+import { runGuestRequest } from './worker-core.js';
 
 declare const self: {
   onmessage: ((event: MessageEvent) => void) | null;

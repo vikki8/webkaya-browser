@@ -1,8 +1,8 @@
-import { GuestRunPolicy, HostToSandboxMessage, SandboxToHostMessage } from '../types/protocol';
-import { BaseGuestContext, executeGuestCode } from '../runtime/guest-exec';
-import { GuestInvoker } from '../runtime/guest-invoker';
-import { SandboxPolicy } from '../types/policy';
-import { LoopbackTransport, Transport, WorkerTransport } from '../runtime/worker/transport';
+import { GuestRunPolicy, HostToSandboxMessage, SandboxToHostMessage } from '../types/protocol.js';
+import { BaseGuestContext, executeGuestCode } from '../runtime/guest-exec.js';
+import { GuestInvoker } from '../runtime/guest-invoker.js';
+import { SandboxPolicy } from '../types/policy.js';
+import { LoopbackTransport, Transport, WorkerTransport } from '../runtime/worker/transport.js';
 
 export interface ExecRequest {
   code: string;
