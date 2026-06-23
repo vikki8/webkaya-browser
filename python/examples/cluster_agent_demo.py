@@ -30,11 +30,21 @@ from webkaya import (
     CodeGenResult,
     LoadBalancer,
     MemorySnapshotStore,
+    RedisMemoryTier,
     Sandbox,
     SandboxFabric,
     TieredMemory,
     deny_east_west_policy,
 )
+
+
+def build_memory() -> TieredMemory:
+    """In-process by default; set REDIS_URL to distribute the global tier."""
+    url = os.environ.get("REDIS_URL")
+    if url:
+        print(f"Global memory: Redis at {url}\n")
+        return TieredMemory(shared=RedisMemoryTier(url=url, namespace="cluster-agent-demo"))
+    return TieredMemory()
 
 HANDLER_SYSTEM = """You write a Python request handler that runs inside a WebKaya sandbox worker — one of several workers behind a load balancer.
 
@@ -165,7 +175,8 @@ def main() -> None:
     print(handler.strip() + "\n")
 
     # One shared memory for the whole fleet.
-    memory = TieredMemory()
+    memory = build_memory()
+    memory.shared.flush()   # idempotent across runs when backed by a persistent Redis
     seed_global(memory.shared)
 
     fabric = SandboxFabric(policy_program=deny_east_west_policy())

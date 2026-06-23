@@ -70,6 +70,28 @@ print(counter.get(0))   # 1
 The same standard bytecode runs in the browser SDK, this client, and (later)
 kernel eBPF — write the policy once, enforce it wherever the workload lands.
 
+## Distributed global memory (Redis)
+
+The shared/global tier is pluggable. In-process by default; swap in
+`RedisMemoryTier` and the whole fleet coordinates through one real Redis —
+guest code unchanged. `incr` maps to Redis `INCRBY`, which is atomic across
+processes, so a shared counter or budget stays correct under real concurrency.
+
+```python
+from webkaya import TieredMemory, RedisMemoryTier
+
+memory = TieredMemory(shared=RedisMemoryTier(url="redis://localhost:6379/0"))
+# hand memory.binding_for(worker_id) to each sandbox exactly as before
+```
+
+```bash
+pip install webkaya[redis]
+REDIS_URL=redis://localhost:6379/0 python examples/cluster_demo.py   # now distributed
+```
+
+`MemoryTier` (in-process) and `RedisMemoryTier` both satisfy the `KVStore`
+protocol, so they're interchangeable wherever a tier is expected.
+
 ## Quickstart
 
 ```python

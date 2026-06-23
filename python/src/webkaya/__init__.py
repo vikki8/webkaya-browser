@@ -15,7 +15,8 @@ from .policy import (
     normalize_policy,
     validate_policy,
 )
-from .memory import MemoryBinding, MemoryTier, TieredMemory
+from .memory import KVStore, MemoryBinding, MemoryTier, TieredMemory
+from .redis_memory import RedisMemoryTier
 from .sandbox import (
     GuestContext,
     MemorySnapshotStore,
@@ -70,6 +71,8 @@ __all__ = [
     "MemoryTier",
     "TieredMemory",
     "MemoryBinding",
+    "KVStore",
+    "RedisMemoryTier",
     "Sandbox",
     "GuestContext",
     "RunResult",

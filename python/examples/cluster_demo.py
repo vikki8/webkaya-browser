@@ -20,14 +20,28 @@ guest code; it could equally be written by Claude via CodeAgent, which we've
 shown works.)
 """
 
+import os
+
 from webkaya import (
     LoadBalancer,
     MemorySnapshotStore,
+    RedisMemoryTier,
     Sandbox,
     SandboxFabric,
     TieredMemory,
     deny_east_west_policy,
 )
+
+
+def build_memory() -> TieredMemory:
+    """In-process by default; set REDIS_URL to make the global tier distributed
+    across processes/machines — the only line that changes."""
+    url = os.environ.get("REDIS_URL")
+    if url:
+        print(f"Global memory: Redis at {url} (shared across every process)\n")
+        return TieredMemory(shared=RedisMemoryTier(url=url, namespace="cluster-demo"))
+    print("Global memory: in-process (set REDIS_URL to distribute across machines)\n")
+    return TieredMemory()
 
 # The handler each worker runs per request. It sees `ctx.args['payload']` (the
 # transaction), `ctx.shared` (GLOBAL memory, one store for the whole fleet), and
@@ -83,8 +97,9 @@ TRANSACTIONS = [
 
 def main() -> None:
     # One shared memory for the whole fleet. Seed the global reference data.
-    memory = TieredMemory()
+    memory = build_memory()
     g = memory.shared
+    g.flush()   # idempotent across runs (matters when backed by a persistent Redis)
     g.set("merchant_risk:acme", "1.0")
     g.set("merchant_risk:globex", "4.5")
     g.set("merchant_risk:initech", "1.5")

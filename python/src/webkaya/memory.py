@@ -9,7 +9,24 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class KVStore(Protocol):
+    """The Redis-shaped key/value interface every tier implements. The
+    in-process ``MemoryTier`` and the distributed ``RedisMemoryTier`` are
+    interchangeable wherever a tier is expected — swap one for the other and
+    the guest code is unchanged."""
+
+    def get(self, key: str) -> Optional[str]: ...
+    def set(self, key: str, value, ttl_ms: Optional[float] = None) -> None: ...
+    def delete(self, key: str) -> bool: ...
+    def incr(self, key: str, by: int = 1) -> int: ...
+    def expire(self, key: str, ttl_ms: float) -> bool: ...
+    def ttl(self, key: str) -> float: ...
+    def keys(self, pattern: Optional[str] = None) -> List[str]: ...
+    def flush(self) -> None: ...
 
 
 def _glob_to_regex(pattern: str) -> "re.Pattern[str]":
@@ -88,14 +105,26 @@ class MemoryBinding:
     keyword; it maps to ``ctx.global`` in the TypeScript SDK.
     """
 
-    local: MemoryTier
-    shared: MemoryTier
+    local: KVStore
+    shared: KVStore
 
 
 class TieredMemory:
-    def __init__(self, now: Callable[[], float] = lambda: time.time() * 1000) -> None:
+    """Per-sandbox ``local`` tiers plus one ``shared`` (global) tier.
+
+    The shared tier defaults to an in-process ``MemoryTier`` but can be any
+    ``KVStore`` — pass a ``RedisMemoryTier`` to make the global tier distributed
+    across processes/machines while locals stay in-process. The code reading
+    ``ctx.shared`` doesn't change.
+    """
+
+    def __init__(
+        self,
+        now: Callable[[], float] = lambda: time.time() * 1000,
+        shared: Optional[KVStore] = None,
+    ) -> None:
         self._now = now
-        self.shared = MemoryTier(now)
+        self.shared: KVStore = shared if shared is not None else MemoryTier(now)
         self._locals: Dict[str, MemoryTier] = {}
 
     def local_for(self, identifier: str) -> MemoryTier:
