@@ -132,6 +132,18 @@ This client tracks the TypeScript SDK with a few language-driven differences:
 - KV `delete(...)` replaces the TS `del` (a Python keyword).
 - `policy.timeout_ms` is **advisory** in this local engine: CPython cannot preempt a running call, so the timeout is enforced on the browser and server tiers, not here.
 
+## Examples
+
+Runnable scripts in [`examples/`](examples) (each falls back to a built-in
+reference handler when no API key is set, so they run offline):
+
+| Script | Shows |
+|---|---|
+| `agent_demo.py` | Claude writes Python, the sandbox runs it, repair on failure |
+| `cluster_demo.py` | A load-balanced fleet coordinating through global memory (set `REDIS_URL` to distribute) |
+| `cluster_agent_demo.py` | Claude writes the fleet's handler; it's validated, then deployed across the workers |
+| `multi_endpoint_demo.py` | Different Claude-written handlers per route (`/score`, `/refund`, `/audit`), each its own worker pool, one shared memory |
+
 ## Run the tests
 
 ```bash
