@@ -12,10 +12,40 @@ it once, run it anywhere the workload lands.
 ## Install
 
 ```bash
-pip install webkaya
+pip install webkaya            # core: no third-party deps, Python 3.9+
+pip install webkaya[claude]    # + the Anthropic SDK, to let Claude write the code
 ```
 
-No third-party dependencies (standard library only); Python 3.9+.
+## Let Claude write the code (the agent loop)
+
+`CodeAgent` runs the generate → run → repair loop in Python: Claude writes guest
+Python, the sandbox runs it under full policy, and any failure (a raised
+exception, a token-scan rejection) is fed back for another attempt. Only the
+task text and error reach the model — the data stays in the sandbox.
+
+```python
+from webkaya import Sandbox, ClaudeProvider, CodeAgent
+
+sandbox = Sandbox.create(initial_state={"rows": [{"region": "EMEA", "revenue": 95}]})
+agent = CodeAgent(ClaudeProvider(), sandbox, max_attempts=3)   # ANTHROPIC_API_KEY from env
+
+outcome = agent.run("Sum revenue per region from ctx.state['rows'] and return {region: total}.")
+print(outcome.ok, outcome.result.value)          # True {'EMEA': 95}
+print(outcome.code)                               # the Python Claude wrote
+print(outcome.input_tokens, outcome.output_tokens)
+```
+
+A runnable version is in [`examples/agent_demo.py`](examples/agent_demo.py):
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+python examples/agent_demo.py
+```
+
+Note: the Python sandbox runs Python guest code with **no imports allowed**
+(stdlib + `ctx` only), so Claude writes plain-Python aggregation over
+`ctx.state`, not pandas. (Sandbox eBPF probes are currently a TypeScript-only
+feature; the Python client ships eBPF for the fabric/load-balancer.)
 
 ## Quickstart
 

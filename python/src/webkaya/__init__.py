@@ -47,6 +47,14 @@ from .asm import (
     round_robin_balancer,
 )
 from .net import LoadBalancer, NetResponse, SandboxFabric
+from .llm import (
+    AgentAttempt,
+    AgentOutcome,
+    ClaudeProvider,
+    CodeAgent,
+    CodeGenResult,
+    LlmProvider,
+)
 
 __version__ = "0.1.0"
 
@@ -88,4 +96,10 @@ __all__ = [
     "SandboxFabric",
     "LoadBalancer",
     "NetResponse",
+    "LlmProvider",
+    "ClaudeProvider",
+    "CodeAgent",
+    "CodeGenResult",
+    "AgentAttempt",
+    "AgentOutcome",
 ]
