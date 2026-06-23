@@ -1,6 +1,6 @@
-import { CodeAnalyst } from '../llm/code-analyst';
-import { LlmUsage } from '../llm/provider';
-import { PythonRunner, PythonRunResult } from './pyodide-runner';
+import { CodeAnalyst } from '../llm/code-analyst.js';
+import { LlmUsage } from '../llm/provider.js';
+import { PythonRunner, PythonRunResult } from './pyodide-runner.js';
 
 /**
  * The local-data analyst loop, end to end: an LLM writes pandas for a

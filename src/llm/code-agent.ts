@@ -1,6 +1,6 @@
-import { RunResult, Sandbox } from '../sandbox/sandbox';
-import { DISALLOWED_GUEST_TOKENS } from '../runtime/policy';
-import { LlmProvider, LlmUsage } from './provider';
+import { RunResult, Sandbox } from '../sandbox/sandbox.js';
+import { DISALLOWED_GUEST_TOKENS } from '../runtime/policy.js';
+import { LlmProvider, LlmUsage } from './provider.js';
 
 /**
  * The agent loop the product exists for: an LLM writes guest code, the

@@ -1,21 +1,21 @@
-import { SandboxPolicy } from '../types/policy';
-import { Capabilities, detectCapabilities } from '../runtime/capability-detect';
-import { ComputeBackendSelection, selectComputeBackend } from '../runtime/backends';
-import { assertGuestCodeSafety, normalizePolicy } from '../runtime/policy';
-import { ProbeOptions, ProbeRegistry, SandboxTracepoint } from './probes';
-import { KVStore, MemoryBinding } from '../memory/tiered-memory';
+import { SandboxPolicy } from '../types/policy.js';
+import { Capabilities, detectCapabilities } from '../runtime/capability-detect.js';
+import { ComputeBackendSelection, selectComputeBackend } from '../runtime/backends.js';
+import { assertGuestCodeSafety, normalizePolicy } from '../runtime/policy.js';
+import { ProbeOptions, ProbeRegistry, SandboxTracepoint } from './probes.js';
+import { KVStore, MemoryBinding } from '../memory/tiered-memory.js';
 import {
   InlineExecutor,
   SandboxExecutor,
   WorkerExecutor,
   WorkerRuntimeMode,
   defaultTransportFactory,
-} from './executor';
+} from './executor.js';
 import {
   createDefaultSnapshotStore,
   SandboxSnapshot,
   SnapshotStore,
-} from './snapshot-store';
+} from './snapshot-store.js';
 
 export interface SandboxOptions {
   policy?: Partial<SandboxPolicy>;

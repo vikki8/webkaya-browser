@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { CodeGenRequest, CodeGenResult, LlmProvider } from './provider';
+import { CodeGenRequest, CodeGenResult, LlmProvider } from './provider.js';
 
 /**
  * Claude-backed code generation via the official Anthropic SDK.

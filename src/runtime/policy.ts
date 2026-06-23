@@ -1,4 +1,4 @@
-import { PolicyEditorState, SandboxPolicy } from '../types/policy';
+import { PolicyEditorState, SandboxPolicy } from '../types/policy.js';
 
 export const MAX_POLICY_CODE_LENGTH = 20_000;
 

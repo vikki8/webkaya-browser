@@ -1,7 +1,7 @@
-import { EbpfMap } from '../ebpf/maps';
-import { EbpfVm } from '../ebpf/vm';
-import { NetAddress, NetResponse, SandboxFabric } from './fabric';
-import { INGRESS_ADDR, roundRobinBalancer } from './hooks';
+import { EbpfMap } from '../ebpf/maps.js';
+import { EbpfVm } from '../ebpf/vm.js';
+import { NetAddress, NetResponse, SandboxFabric } from './fabric.js';
+import { INGRESS_ADDR, roundRobinBalancer } from './hooks.js';
 
 export interface IngressRequest {
   path?: string;
