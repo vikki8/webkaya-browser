@@ -153,21 +153,43 @@ For Python/pandas over a DataFrame, the equivalent is `DataAgent` from
 
 ---
 
-## Step 6 — The Python client (optional)
+## Step 6 — Do it all in Python instead
 
-A `pip`-installable mirror of the same model, for orchestrating from Python:
+A `pip`-installable mirror of the same model, including the Claude agent loop:
 
 ```bash
 cd python
-pip install .                                   # or: pip install -e .
-PYTHONPATH=src python -m unittest discover -s tests   # 44 tests
+pip install ".[claude]"                                # core + Anthropic SDK
+PYTHONPATH=src python -m unittest discover -s tests     # 49 tests
 ```
+
+A plain sandbox run:
 
 ```python
 from webkaya import Sandbox
 box = Sandbox.create(initial_state={"n": 0})
 print(box.run("ctx.state['n'] += 41\nreturn ctx.state['n']").value)   # 41
 ```
+
+The full agent loop — Claude writes the Python, the sandbox runs it, repair on
+failure (`python/examples/agent_demo.py`):
+
+```python
+from webkaya import Sandbox, ClaudeProvider, CodeAgent
+
+sandbox = Sandbox.create(initial_state={"rows": [{"region": "EMEA", "revenue": 95}]})
+agent = CodeAgent(ClaudeProvider(), sandbox)            # ANTHROPIC_API_KEY from env
+outcome = agent.run("Sum revenue per region from ctx.state['rows']; return {region: total}.")
+print(outcome.ok, outcome.result.value)                 # True {'EMEA': 95}
+```
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-... && python examples/agent_demo.py
+```
+
+The Python sandbox runs Python with no imports (stdlib + `ctx` only), so Claude
+writes plain-Python aggregation over `ctx.state`, not pandas. For pandas over a
+DataFrame, use the browser/Pyodide path (Step 4).
 
 ---
 

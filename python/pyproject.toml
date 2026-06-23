@@ -18,6 +18,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+claude = ["anthropic>=0.40"]
+
 [project.urls]
 Homepage = "https://github.com/vikki8/webkaya-browser"
 Repository = "https://github.com/vikki8/webkaya-browser"
