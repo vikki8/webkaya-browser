@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { IsolatedOrchestrator, type AgentRun, type AgentSpec } from '@webkaya/sandbox';
+import { IsolatedOrchestrator, type AgentRun } from '@webkaya/sandbox';
+import { ClaudeProvider } from '@webkaya/sandbox/llm';
 
-// --- The scenario: a map → reduce → report pipeline run by isolated agents ---
-// that coordinate only through a shared blackboard. Each agent's logic is plain
-// guest JS; it could equally be written by an LLM.
+// Real Web Worker per agent — reliable browser isolation. Each agent runs on
+// its own thread with no access to this page (no window/DOM), and agents never
+// reach each other.
+const workerFactory = () =>
+  new Worker(new URL('../../../src/runtime/worker/worker-entry.ts', import.meta.url), { type: 'module' });
 
 const DATA = [
   { region: 'EMEA', amount: 95 }, { region: 'APAC', amount: 110 }, { region: 'AMER', amount: 120 },
@@ -11,174 +14,213 @@ const DATA = [
   { region: 'EMEA', amount: 40 }, { region: 'APAC', amount: 35 }, { region: 'AMER', amount: 55 },
 ];
 
-const MAPPER = `
+type Role = 'mapper' | 'reducer' | 'reporter';
+
+// Fallback handlers, used when no API key is set. With a key, Claude writes these.
+const REFERENCE: Record<Role, string> = {
+  mapper: `
 var rows = (ctx.args.input && ctx.args.input.rows) || [];
-var shard = ctx.args.input.shard;
-var sums = {};
-for (var i = 0; i < rows.length; i++) { var r = rows[i]; sums[r.region] = (sums[r.region] || 0) + r.amount; }
+var shard = ctx.args.input.shard, sums = {};
+for (var i=0;i<rows.length;i++){ var r=rows[i]; sums[r.region]=(sums[r.region]||0)+r.amount; }
 var writes = {};
-for (var k in sums) writes['partial:' + shard + ':' + k] = sums[k];
-return { writes: writes, output: sums };
-`;
-
-const REDUCER = `
-var read = ctx.args.read || {};
-var totals = {};
-for (var key in read) { var region = key.split(':')[2]; totals[region] = (totals[region] || 0) + Number(read[key]); }
+for (var k in sums) writes['partial:'+shard+':'+k] = sums[k];
+return { writes: writes, output: sums };`,
+  reducer: `
+var read = ctx.args.read || {}, totals = {};
+for (var key in read){ var region=key.split(':')[2]; totals[region]=(totals[region]||0)+Number(read[key]); }
 var writes = {};
-for (var r in totals) writes['total:' + r] = totals[r];
-return { writes: writes, output: totals };
-`;
+for (var r in totals) writes['total:'+r] = totals[r];
+return { writes: writes, output: totals };`,
+  reporter: `
+var read = ctx.args.read || {}, grand=0, top=null, topV=-1, n=0;
+for (var key in read){ var region=key.split(':')[1]; var v=Number(read[key]); grand+=v; n++; if(v>topV){topV=v;top=region;} }
+return { writes: { 'report:summary': 'Total '+grand+' across '+n+' regions; top '+top+' ('+topV+')' }, output: { grand: grand, top: top } };`,
+};
 
-const REPORTER = `
-var read = ctx.args.read || {};
-var grand = 0, top = null, topV = -1, n = 0;
-for (var key in read) { var region = key.split(':')[1]; var v = Number(read[key]); grand += v; n++; if (v > topV) { topV = v; top = region; } }
-return { writes: { 'report:summary': 'Total ' + grand + ' across ' + n + ' regions; top ' + top + ' (' + topV + ')' }, output: { grand: grand, top: top } };
-`;
+const ROLE_SYSTEM: Record<Role, string> = {
+  mapper: `Write a WebKaya agent (function body, arg \`ctx\`). \`ctx.args.input\` is { shard: string, rows: [{region, amount}] }. Sum amounts by region. Return { writes, output } where writes maps 'partial:<shard>:<region>' to the sum (writes is the only way to share results). No imports; builtins and ctx only. Keep it short.`,
+  reducer: `Write a WebKaya agent (function body, arg \`ctx\`). \`ctx.args.read\` is an object of blackboard keys named 'partial:<shard>:<region>' to numeric string values written by upstream agents. Sum them per region. Return { writes, output } where writes maps 'total:<region>' to the regional total. No imports; builtins and ctx only. Keep it short.`,
+  reporter: `Write a WebKaya agent (function body, arg \`ctx\`). \`ctx.args.read\` is an object of keys 'total:<region>' to numeric string values. Compute the grand total and the top region. Return { writes: { 'report:summary': <a one-line string> }, output: {...} }. No imports; builtins and ctx only. Keep it short.`,
+};
 
-interface Phase { id: string; label: string; specs: AgentSpec[]; }
+interface Step { name: string; role: Role; phase: string; reads?: string[]; input?: unknown; }
 
-function buildPhases(): Phase[] {
+function buildSteps(): { phases: { id: string; label: string }[]; steps: Step[] } {
   const shards = [DATA.slice(0, 3), DATA.slice(3, 6), DATA.slice(6, 9)];
-  return [
-    {
-      id: 'map', label: 'Map · 3 isolated agents',
-      specs: shards.map((rows, i) => ({
-        name: `mapper-${'ABC'[i]}`, handler: MAPPER, input: { shard: 'ABC'[i], rows },
-      })),
-    },
-    { id: 'reduce', label: 'Reduce · reads the mappers’ writes', specs: [{ name: 'reducer', handler: REDUCER, reads: ['partial:*'] }] },
-    { id: 'report', label: 'Report · reads the reducer’s writes', specs: [{ name: 'reporter', handler: REPORTER, reads: ['total:*'] }] },
+  const steps: Step[] = [
+    ...shards.map((rows, i) => ({ name: `mapper-${'ABC'[i]}`, role: 'mapper' as Role, phase: 'map', input: { shard: 'ABC'[i], rows } })),
+    { name: 'reducer', role: 'reducer', phase: 'reduce', reads: ['partial:*'] },
+    { name: 'reporter', role: 'reporter', phase: 'report', reads: ['total:*'] },
   ];
+  return {
+    phases: [
+      { id: 'map', label: 'Map · 3 agents, one per shard' },
+      { id: 'reduce', label: 'Reduce · reads the mappers’ writes' },
+      { id: 'report', label: 'Report · reads the reducer’s writes' },
+    ],
+    steps,
+  };
 }
 
 type Status = 'idle' | 'running' | 'done' | 'error';
-interface AgentView { name: string; phase: string; status: Status; readCount?: number; writes?: string[]; }
-interface BoardEntry { key: string; value: string; }
+interface AgentView { name: string; role: Role; phase: string; status: Status; note?: string; error?: string; reads?: number; writes?: string[]; ai?: boolean; }
+interface KV { key: string; value: string; }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const prefixOf = (k: string) => k.split(':')[0];
+const prefix = (k: string) => k.split(':')[0];
 
 export function App() {
-  const phases = buildPhases();
-  const [agents, setAgents] = useState<AgentView[]>(
-    phases.flatMap((p) => p.specs.map((s) => ({ name: s.name, phase: p.id, status: 'idle' as Status }))),
-  );
-  const [board, setBoard] = useState<BoardEntry[]>([]);
+  const { phases, steps } = buildSteps();
+  const initial = (): AgentView[] => steps.map((s) => ({ name: s.name, role: s.role, phase: s.phase, status: 'idle' }));
+  const [agents, setAgents] = useState<AgentView[]>(initial);
+  const [board, setBoard] = useState<KV[]>([]);
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<string | null>(null);
   const [activePhase, setActivePhase] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [tokens, setTokens] = useState<{ in: number; out: number } | null>(null);
 
-  function patch(name: string, p: Partial<AgentView>) {
+  const patch = (name: string, p: Partial<AgentView>) =>
     setAgents((prev) => prev.map((a) => (a.name === name ? { ...a, ...p } : a)));
-  }
 
   async function run() {
     if (running) return;
     setRunning(true);
     setReport(null);
     setBoard([]);
-    setAgents((prev) => prev.map((a) => ({ ...a, status: 'idle', readCount: undefined, writes: undefined })));
+    setTokens(null);
+    setAgents(initial());
 
-    const orch = new IsolatedOrchestrator();
-    const refreshBoard = () => setBoard(orch.board.keys().sort().map((key) => ({ key, value: orch.board.get(key) ?? '' })));
+    const useClaude = apiKey.trim().length > 12;
+    const provider = useClaude ? new ClaudeProvider({ apiKey: apiKey.trim(), dangerouslyAllowBrowser: true }) : null;
+    let tin = 0, tout = 0;
+
+    const orch = new IsolatedOrchestrator({ runtime: 'worker', workerFactory });
+    const refresh = () => setBoard(orch.board.keys().sort().map((key) => ({ key, value: orch.board.get(key) ?? '' })));
 
     for (const phase of phases) {
       setActivePhase(phase.id);
-      for (const spec of phase.specs) {
-        patch(spec.name, { status: 'running' });
-        await sleep(380);
-        let run: AgentRun;
+      for (const step of steps.filter((s) => s.phase === phase.id)) {
+        patch(step.name, { status: 'running' });
+
+        let handler = REFERENCE[step.role];
+        let ai = false;
+        if (provider) {
+          patch(step.name, { note: 'writing its own code…' });
+          try {
+            const gen = await provider.generateCode({ system: ROLE_SYSTEM[step.role], prompt: 'Write the agent.' });
+            handler = gen.code;
+            tin += gen.usage?.inputTokens ?? 0;
+            tout += gen.usage?.outputTokens ?? 0;
+            ai = true;
+          } catch (e) {
+            patch(step.name, { note: 'Claude unavailable — using built-in' });
+          }
+        }
+
+        await sleep(250);
+        let r: AgentRun;
         try {
-          run = await orch.runAgent(spec, phase.id);
+          r = await orch.runAgent({ name: step.name, handler, reads: step.reads, input: step.input }, phase.id);
         } catch (e) {
-          patch(spec.name, { status: 'error' });
+          patch(step.name, { status: 'error', error: (e as Error).message, ai });
           continue;
         }
-        patch(spec.name, {
-          status: run.ok ? 'done' : 'error',
-          readCount: Object.keys(run.reads).length,
-          writes: Object.keys(run.writes),
+        patch(step.name, {
+          status: r.ok ? 'done' : 'error',
+          error: r.ok ? undefined : r.error,
+          reads: Object.keys(r.reads).length,
+          writes: Object.keys(r.writes),
+          ai,
+          note: undefined,
         });
-        refreshBoard();
-        await sleep(220);
+        refresh();
+        await sleep(180);
       }
     }
 
     setActivePhase(null);
     setReport(orch.board.get('report:summary'));
+    if (useClaude) setTokens({ in: tin, out: tout });
     setRunning(false);
   }
 
   return (
     <div className="app">
+      <div className="accent" />
       <header>
         <div className="wordmark">WebKaya</div>
-        <div className="tagline">Isolated agents, coordinating through a shared blackboard.</div>
+        <h1>Isolated agents, one shared blackboard</h1>
+        <p className="lede">
+          A map → reduce → report pipeline. Each agent runs in its own isolated worker — no access
+          to this page, no way to call another agent. They coordinate only by reading and writing a
+          shared blackboard.
+        </p>
       </header>
 
-      <p className="note">
-        Each agent runs in its own WebAssembly realm — no host access, no agent-to-agent calls. The
-        only thing they share is the blackboard: an agent reads what earlier agents wrote, and the
-        orchestrator applies the writes it returns. Coordination through memory, not direct I/O.
-      </p>
-
-      <div className="row" style={{ marginBottom: '1.25rem' }}>
-        <button onClick={run} disabled={running}>{running ? 'Running…' : 'Run pipeline'}</button>
-        {activePhase && <span className="meta">phase: {activePhase}</span>}
-      </div>
+      <section className="controls panel">
+        <div className="row">
+          <button className="cta" onClick={run} disabled={running}>{running ? 'Running…' : '▶  Run pipeline'}</button>
+          <input
+            className="key"
+            type="password"
+            placeholder="Anthropic API key — let the agents write their own code (optional)"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            autoComplete="off"
+          />
+        </div>
+        <div className="stat-row">
+          <span className="stat">engine · Web Worker (isolated)</span>
+          <span className="stat">{apiKey.trim().length > 12 ? 'agents · written by Claude' : 'agents · built-in'}</span>
+          {tokens && <span className="stat">tokens · {tokens.in.toLocaleString()} in / {tokens.out.toLocaleString()} out</span>}
+        </div>
+      </section>
 
       <div className="grid">
-        <section className="lanes">
-          {phases.map((phase) => (
-            <div className={`lane ${activePhase === phase.id ? 'active' : ''}`} key={phase.id}>
-              <div className="lane-head">{phase.label}</div>
-              <div className="cards">
-                {agents.filter((a) => a.phase === phase.id).map((a) => (
-                  <div className={`card ${a.status}`} key={a.name}>
-                    <div className="card-top">
-                      <span className="dot" />
-                      <span className="name">{a.name}</span>
-                      <span className="badge">WASM-isolated</span>
+        <section className="flow">
+          {phases.map((phase, pi) => (
+            <div key={phase.id}>
+              <div className={`phase ${activePhase === phase.id ? 'active' : ''}`}>
+                <div className="phase-head">{phase.label}</div>
+                <div className="cards">
+                  {agents.filter((a) => a.phase === phase.id).map((a) => (
+                    <div className={`card ${a.status}`} key={a.name}>
+                      <div className="card-top">
+                        <span className="dot" />
+                        <span className="name">{a.name}</span>
+                        {a.ai && <span className="badge ai">Claude</span>}
+                        <span className="badge">isolated</span>
+                      </div>
+                      <div className="card-meta">
+                        {a.status === 'idle' && 'waiting'}
+                        {a.status === 'running' && (a.note ?? 'running…')}
+                        {a.status === 'done' && `read ${a.reads} · wrote ${a.writes?.length ?? 0}`}
+                        {a.status === 'error' && <span className="err">✗ {a.error ?? 'failed'}</span>}
+                      </div>
                     </div>
-                    <div className="card-meta">
-                      {a.status === 'idle' && 'waiting'}
-                      {a.status === 'running' && 'running…'}
-                      {a.status === 'done' && `read ${a.readCount} · wrote ${a.writes?.length ?? 0}`}
-                      {a.status === 'error' && 'error'}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+              {pi < phases.length - 1 && <div className="connector" aria-hidden />}
             </div>
           ))}
         </section>
 
         <section className="board panel">
-          <h2>Shared blackboard</h2>
+          <h2>Shared blackboard <span className="count">{board.length}</span></h2>
           {board.length === 0 ? (
-            <div className="meta">empty — run the pipeline</div>
+            <div className="empty">empty — run the pipeline</div>
           ) : (
             board.map((e) => (
-              <div className={`kv ${prefixOf(e.key)}`} key={e.key}>
+              <div className={`kv ${prefix(e.key)}`} key={e.key}>
                 <span className="k">{e.key}</span>
                 <span className="v">{e.value}</span>
               </div>
             ))
           )}
+          {report && <div className="result">{report}</div>}
         </section>
-      </div>
-
-      {report && (
-        <section className="panel report">
-          <h2>Result</h2>
-          <div>{report}</div>
-        </section>
-      )}
-
-      <div className="status">
-        {running ? 'orchestrating…' : 'ready'} · agents coordinate via the blackboard only
       </div>
     </div>
   );
