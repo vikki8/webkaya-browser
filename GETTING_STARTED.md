@@ -102,26 +102,22 @@ const { results } = await box.replay();           // re-run the whole history
 
 ---
 
-## Step 4 — The headline demo: analyze a CSV with Claude, in your browser
+## Step 4 — The headline demo: isolated agents coordinating via shared memory
 
-The product in one page: pick a CSV, ask a question in English, an AI writes the
-pandas, it runs **in your browser** over your file, and the Network panel shows
-that your data never left the tab.
-
-The presentable version is a React + Vite app:
+The differentiator, visualized: a map → reduce → report pipeline run by separate
+agents, each in its own WebAssembly realm (no host access, no agent-to-agent
+calls), coordinating only through a shared blackboard. Watch the board fill in as
+each phase builds on the last.
 
 ```bash
 cd examples/webkaya-demo
 npm install
-npm run dev             # open the printed localhost URL
+npm run dev             # open the printed localhost URL, click "Run pipeline"
 ```
 
-(There's also a zero-build vanilla version at `examples/local-data-analyst/` —
-`npm run build && npx serve .`, then open that folder.)
-
-In the page:
-1. Click **Use sample** (or pick your own CSV).
-2. Ask something: *"average base salary by department"*.
+The orchestration is a real SDK primitive (`IsolatedOrchestrator`), tested in the
+main suite. (There's also a simpler local-data analyst demo at
+`examples/local-data-analyst/`.)
 
 It works with **no API key** (a built-in planner handles a few question shapes).
 To use Claude for real: paste an Anthropic API key into the key field, and it
