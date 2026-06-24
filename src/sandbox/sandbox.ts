@@ -8,9 +8,10 @@ import {
   InlineExecutor,
   SandboxExecutor,
   WorkerExecutor,
-  WorkerRuntimeMode,
+  SandboxRuntimeMode,
   defaultTransportFactory,
 } from './executor.js';
+import { QuickJsExecutor } from '../runtime/wasm/quickjs-executor.js';
 import {
   createDefaultSnapshotStore,
   SandboxSnapshot,
@@ -29,13 +30,19 @@ export interface SandboxOptions {
    */
   memory?: MemoryBinding;
   /**
-   * Execution mode. `inline` (default) runs guests in the host realm and
-   * supports `ctx.local` / `ctx.global`. `worker` runs guests over the message
-   * protocol — off the main thread when `workerFactory` is supplied, otherwise
-   * in an in-process loopback — for real isolation and hard timeout
-   * enforcement, but without the live memory tiers.
+   * Execution mode:
+   * - `inline` (default): guests run in the host realm behind a token-scanned
+   *   `Function` boundary; supports the live `ctx.local` / `ctx.global` tiers.
+   * - `worker`: guests run over the message protocol, off the main thread when
+   *   `workerFactory` is supplied; thread isolation + terminate-on-timeout.
+   * - `wasm`: guests run inside QuickJS compiled to WebAssembly — a real realm
+   *   boundary (no host globals reachable) with enforced memory and time
+   *   limits. Requires the optional `quickjs-emscripten` package.
+   *
+   * `worker` and `wasm` exchange only serializable state, so they do not expose
+   * the live memory tiers.
    */
-  runtime?: WorkerRuntimeMode;
+  runtime?: SandboxRuntimeMode;
   /** Factory for the backing Web Worker when `runtime: 'worker'`. */
   workerFactory?: () => Worker;
 }
@@ -92,9 +99,9 @@ function newId(): string {
  * under a governance policy, records every run, and supports snapshot,
  * fork, restore, and replay.
  *
- * v0 executes guests in-process behind a token-scanned `Function` boundary;
- * the Web Worker transport (same protocol, off main thread) is the next
- * isolation tier on the roadmap.
+ * Isolation scales with `runtime`: `inline` (token-scanned `Function`),
+ * `worker` (off-thread, terminable), or `wasm` (a true QuickJS-on-WebAssembly
+ * realm with no host access and enforced memory/time limits).
  */
 export class Sandbox {
   readonly id: string;
@@ -102,7 +109,7 @@ export class Sandbox {
   readonly capabilities: Capabilities | null;
   readonly backend: ComputeBackendSelection;
   readonly parentSnapshotId?: string;
-  readonly runtime: WorkerRuntimeMode;
+  readonly runtime: SandboxRuntimeMode;
 
   private state: Record<string, unknown>;
   private readonly initialState: Record<string, unknown>;
@@ -134,11 +141,13 @@ export class Sandbox {
     this.probes = new ProbeRegistry(this.onLog);
     this.memory = options.memory;
 
+    if (this.runtime !== 'inline' && this.memory) {
+      this.onLog(`${this.runtime} runtime does not expose ctx.local/ctx.global; memory tiers are inline-only.`);
+    }
     if (this.runtime === 'worker') {
-      if (this.memory) {
-        this.onLog('Worker runtime does not expose ctx.local/ctx.global; memory tiers are inline-only.');
-      }
       this.executor = new WorkerExecutor(this.policy, defaultTransportFactory(options.workerFactory));
+    } else if (this.runtime === 'wasm') {
+      this.executor = new QuickJsExecutor(this.policy);
     } else {
       this.executor = new InlineExecutor(
         this.policy,

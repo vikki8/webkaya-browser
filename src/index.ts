@@ -18,7 +18,8 @@ export { ProbeRegistry, TRACEPOINT_LAYOUTS } from './sandbox/probes.js';
 export type { SandboxTracepoint, ProbeOptions } from './sandbox/probes.js';
 
 export { InlineExecutor, WorkerExecutor, defaultTransportFactory } from './sandbox/executor.js';
-export type { SandboxExecutor, ExecRequest, ExecOutcome, WorkerRuntimeMode } from './sandbox/executor.js';
+export type { SandboxExecutor, ExecRequest, ExecOutcome, SandboxRuntimeMode } from './sandbox/executor.js';
+export { QuickJsExecutor } from './runtime/wasm/quickjs-executor.js';
 export { LoopbackTransport, WorkerTransport } from './runtime/worker/transport.js';
 export type { Transport } from './runtime/worker/transport.js';
 export { runGuestRequest } from './runtime/worker/worker-core.js';

@@ -194,7 +194,7 @@ export class WorkerExecutor implements SandboxExecutor {
   }
 }
 
-export type WorkerRuntimeMode = 'inline' | 'worker';
+export type SandboxRuntimeMode = 'inline' | 'worker' | 'wasm';
 
 /**
  * Default transport selection: a real Worker when the caller supplies a factory
