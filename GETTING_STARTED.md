@@ -102,21 +102,22 @@ const { results } = await box.replay();           // re-run the whole history
 
 ---
 
-## Step 4 — The headline demo: analyze a CSV with Claude, in your browser
+## Step 4 — The headline demo: isolated agents coordinating via shared memory
 
-This is the product in one page: pick a CSV, ask a question in English, Claude
-writes the pandas, it runs **in your browser** over your file, and the "bytes of
-your data sent to a server" counter stays at 0.
+The differentiator, visualized: a map → reduce → report pipeline run by separate
+agents, each in its own WebAssembly realm (no host access, no agent-to-agent
+calls), coordinating only through a shared blackboard. Watch the board fill in as
+each phase builds on the last.
 
 ```bash
-npm run build           # if you haven't already
-npx serve .             # serves the repo over http (any static server works)
-# open the printed URL + /examples/local-data-analyst/
+cd examples/webkaya-demo
+npm install
+npm run dev             # open the printed localhost URL, click "Run pipeline"
 ```
 
-In the page:
-1. Click **Use sample data** (or pick your own CSV).
-2. Ask something: *"average revenue by region"*.
+The orchestration is a real SDK primitive (`IsolatedOrchestrator`), tested in the
+main suite. (There's also a simpler local-data analyst demo at
+`examples/local-data-analyst/`.)
 
 It works with **no API key** (a built-in planner handles a few question shapes).
 To use Claude for real: paste an Anthropic API key into the key field, and it

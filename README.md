@@ -55,7 +55,7 @@ const restored = await Sandbox.restore(snap.id);  // resume from a persisted sna
 |---------|--------------|
 | **Policy** | Clamped governance config per sandbox: timeout, retries, memory budget, guest code size, auto-snapshot cadence. Supports "policy as code" via template/eject modes (`resolvePolicy`). |
 | **Guest context** | Guest code receives a single `ctx` object (`state`, `args`, `log`). Code is token-scanned (no `fetch`, `eval`, DOM, ambient globals) and state commits only on success. |
-| **Execution mode** | `runtime: 'inline'` (default) runs guests in the host realm and exposes `ctx.local`/`ctx.global`. `runtime: 'worker'` runs them over the host↔sandbox message protocol — off the main thread with a real `Worker` for true isolation and hard timeout enforcement, or an in-process loopback as a fallback. |
+| **Execution mode** | `runtime: 'inline'` (default) runs guests in the host realm and exposes `ctx.local`/`ctx.global`. `runtime: 'worker'` runs them off the main thread over the message protocol (terminable). `runtime: 'wasm'` runs them inside QuickJS-on-WebAssembly — a true realm boundary (no host globals reachable) with enforced memory and time limits. |
 | **Snapshots** | Sandbox state persists to OPFS (`OpfsSnapshotStore`) with an in-memory fallback. Snapshots carry lineage (`parentSnapshotId`). |
 | **Fork** | Branch a sandbox at its current state; parent and fork diverge independently. |
 | **Replay** | Re-execute the recorded run sequence from initial state in a fresh sandbox — debug a run, verify reproducibility. |
@@ -277,9 +277,26 @@ This is what the [demo](examples/local-data-analyst/README.md) runs when you sup
 5. **Server overflow tier** — same SDK API, optional cloud execution for workloads beyond the browser's memory ceiling, with probe programs attaching to kernel eBPF/ubpf instead of the userspace VM.
 6. **Probe toolchain** — load probes compiled from C/Rust (clang `-target bpf` ELF objects) in addition to the built-in assembler.
 
-## Current limits
+## Isolation
 
-- Inline guest execution is in-process behind a token-scanned `Function` boundary — an honesty note, not a security claim. `runtime: 'worker'` with a real `Worker` adds genuine thread isolation and hard timeout enforcement; stronger sandboxing (WASM realm per guest) remains future work.
+Isolation scales with the chosen `runtime`, weakest to strongest:
+
+- **`inline`** (default) — guests run in the host realm behind a token-scan. Convenient and exposes the live memory tiers, but it is *not* a security boundary; treat it as a model.
+- **`worker`** — off the main thread; a real `Worker` can be terminated, giving hard timeout enforcement.
+- **`wasm`** — guests run inside **QuickJS compiled to WebAssembly**. This is a genuine realm boundary: the guest has no reference to the host (`window`, `fetch`, `process`, prototype-walks to host globals are all unreachable), and the runtime enforces a memory cap and interrupts a guest that exceeds its time budget. Requires `npm install quickjs-emscripten`.
+
+```ts
+const box = await Sandbox.create({
+  runtime: 'wasm',
+  policy: { timeoutMs: 1000, memoryBudgetMB: 128 },
+});
+await box.run('return [typeof fetch, typeof process].join();'); // -> "undefined,undefined"
+await box.run('while (true) {}');                                // -> interrupted at the time budget
+```
+
+Worker and wasm modes exchange only serializable state, so they do not expose the live `ctx.local`/`ctx.global` tiers (those require the inline realm). The token-scan still runs in every mode as defense-in-depth.
+
+## Current limits
 - Replay re-executes recorded code; it is reproducible for pure state-transforming guests but is not yet bit-perfect deterministic (no interception of time/randomness). Handlers that read `ctx.global` perform shared I/O, so their replay is not deterministic by construction.
 - The fabric, load balancer, and memory tiers are in-process models, not real TCP/SDN/Redis; they exist to prove the programming model and to port onto the server tier unchanged.
 - Snapshot state must be JSON-serializable for OPFS persistence.
