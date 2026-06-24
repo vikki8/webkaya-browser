@@ -1,4 +1,5 @@
 import { Sandbox } from '../sandbox/sandbox.js';
+import { SandboxRuntimeMode } from '../sandbox/executor.js';
 import { KVStore, MemoryTier } from '../memory/tiered-memory.js';
 
 /**
@@ -52,6 +53,13 @@ export interface IsolatedOrchestratorOptions {
   timeoutMs?: number;
   memoryBudgetMB?: number;
   onEvent?: (event: OrchestratorEvent) => void;
+  /**
+   * Isolation mode for each agent's sandbox. `wasm` (default) is the strongest
+   * — a QuickJS-on-WebAssembly realm — and works in Node. In a browser bundler
+   * a real `Worker` (`worker` + `workerFactory`) is the most reliable.
+   */
+  runtime?: SandboxRuntimeMode;
+  workerFactory?: () => Worker;
 }
 
 export class IsolatedOrchestrator {
@@ -60,12 +68,16 @@ export class IsolatedOrchestrator {
   private readonly timeoutMs: number;
   private readonly memoryBudgetMB: number;
   private readonly onEvent: (event: OrchestratorEvent) => void;
+  private readonly runtime: SandboxRuntimeMode;
+  private readonly workerFactory?: () => Worker;
 
   constructor(options: IsolatedOrchestratorOptions = {}) {
     this.board = options.store ?? new MemoryTier();
     this.timeoutMs = options.timeoutMs ?? 2_000;
     this.memoryBudgetMB = options.memoryBudgetMB ?? 128;
     this.onEvent = options.onEvent ?? (() => {});
+    this.runtime = options.runtime ?? 'wasm';
+    this.workerFactory = options.workerFactory;
   }
 
   private snapshot(reads?: string[]): Record<string, string | null> {
@@ -86,7 +98,8 @@ export class IsolatedOrchestrator {
     this.onEvent({ type: 'agent:start', phase, name: spec.name, reads: Object.keys(reads) });
 
     const box = await Sandbox.create({
-      runtime: 'wasm',
+      runtime: this.runtime,
+      workerFactory: this.workerFactory,
       policy: { coldStartMs: 0, retryCount: 0, timeoutMs: this.timeoutMs, memoryBudgetMB: this.memoryBudgetMB },
     });
 

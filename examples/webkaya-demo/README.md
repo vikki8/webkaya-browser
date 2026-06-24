@@ -19,10 +19,14 @@ npm run dev      # open the printed localhost URL, click "Run pipeline"
 
 `npm run build && npm run preview` for a production build.
 
+Paste an **Anthropic API key** in the field at the top and each agent writes its
+own code with Claude (with a built-in fallback). Without a key it runs the
+built-in handlers.
+
 ## What it shows
 
-- **Isolation** — every agent is a `runtime: 'wasm'` sandbox (QuickJS on
-  WebAssembly). It cannot reach `window`/`fetch`/`process` or any other agent.
+- **Isolation** — every agent runs on its own **Web Worker**: a separate thread
+  with no access to this page (no `window`/DOM) and no way to call another agent.
 - **Coordination through memory, not I/O** — phase 2 (reduce) reads the writes
   phase 1 (map) put on the blackboard; phase 3 (report) reads phase 2's. No
   agent talks to another directly.
@@ -31,11 +35,13 @@ npm run dev      # open the printed localhost URL, click "Run pipeline"
   touches shared state directly.
 
 The orchestration is a real SDK primitive (`IsolatedOrchestrator` from
-`@webkaya/sandbox`), tested in the main suite. The handlers here are plain guest
-JS; each could equally be written by an LLM.
+`@webkaya/sandbox`), tested in the main suite. In Node the orchestrator defaults
+to the stronger `wasm` isolation (QuickJS on WebAssembly); the browser demo uses
+`runtime: 'worker'` because Web Workers load reliably under a bundler.
 
 ## How it's wired
 
 - **React + Vite + TypeScript.** Vite aliases the SDK to its source in this repo
   (`vite.config.ts`), so the demo always matches the SDK with no separate build.
-- **QuickJS-on-WebAssembly** runs each agent in isolation, bundled by Vite.
+- Each agent is a `runtime: 'worker'` sandbox; the worker entry is the SDK's
+  `runtime/worker/worker-entry`, bundled by Vite as a module worker.
