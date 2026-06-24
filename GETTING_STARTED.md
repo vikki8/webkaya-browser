@@ -104,19 +104,24 @@ const { results } = await box.replay();           // re-run the whole history
 
 ## Step 4 — The headline demo: analyze a CSV with Claude, in your browser
 
-This is the product in one page: pick a CSV, ask a question in English, Claude
-writes the pandas, it runs **in your browser** over your file, and the "bytes of
-your data sent to a server" counter stays at 0.
+The product in one page: pick a CSV, ask a question in English, an AI writes the
+pandas, it runs **in your browser** over your file, and the Network panel shows
+that your data never left the tab.
+
+The presentable version is a React + Vite app:
 
 ```bash
-npm run build           # if you haven't already
-npx serve .             # serves the repo over http (any static server works)
-# open the printed URL + /examples/local-data-analyst/
+cd examples/webkaya-demo
+npm install
+npm run dev             # open the printed localhost URL
 ```
 
+(There's also a zero-build vanilla version at `examples/local-data-analyst/` —
+`npm run build && npx serve .`, then open that folder.)
+
 In the page:
-1. Click **Use sample data** (or pick your own CSV).
-2. Ask something: *"average revenue by region"*.
+1. Click **Use sample** (or pick your own CSV).
+2. Ask something: *"average base salary by department"*.
 
 It works with **no API key** (a built-in planner handles a few question shapes).
 To use Claude for real: paste an Anthropic API key into the key field, and it
