@@ -3,94 +3,136 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>WebKaya — Local Data Analyst</title>
+    <title>Private Data Analyst — powered by WebKaya</title>
     <style>
-      :root { color-scheme: light dark; --fg: #1a1a1a; --muted: #666; --line: #e3e3e3; --accent: #2a6; --bg: #fafafa; }
-      @media (prefers-color-scheme: dark) { :root { --fg: #eee; --muted: #999; --line: #333; --accent: #4c9; --bg: #161616; } }
+      :root {
+        color-scheme: light dark;
+        --fg: #14161a; --muted: #687; --line: #e6e8ec; --bg: #fbfcfd; --card: #fff;
+        --accent: #1f8a4c; --accent-soft: #e8f6ee; --warn: #c0392b; --warn-soft: #fdecea;
+        --brand: #3a5bd9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --fg: #e9ecf1; --muted: #8a93a3; --line: #262a31; --bg: #0e1014; --card: #161a20;
+                --accent: #3ad17e; --accent-soft: #13251b; --warn: #ff6b5e; --warn-soft: #2a1714; --brand: #6f8cff; }
+      }
       * { box-sizing: border-box; }
-      body { font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); margin: 0; padding: 2rem; max-width: 860px; margin-inline: auto; }
-      h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
-      .sub { color: var(--muted); margin: 0 0 1.5rem; }
-      .card { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; background: color-mix(in srgb, var(--bg) 92%, var(--fg)); }
-      button { font: inherit; padding: .5rem .9rem; border: 1px solid var(--line); border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+      body { font: 15px/1.55 -apple-system, system-ui, sans-serif; color: var(--fg); background: var(--bg);
+             margin: 0; padding: 2.5rem 1.25rem 4rem; }
+      main { max-width: 880px; margin-inline: auto; }
+      .brand { font-weight: 700; letter-spacing: -.01em; color: var(--brand); font-size: .85rem; text-transform: uppercase; }
+      h1 { font-size: 1.85rem; letter-spacing: -.02em; margin: .3rem 0 .4rem; }
+      .lede { color: var(--muted); font-size: 1.05rem; margin: 0 0 1.75rem; max-width: 620px; }
+      .lede b { color: var(--fg); }
+      .card { border: 1px solid var(--line); border-radius: 14px; padding: 1.1rem 1.25rem; margin-bottom: 1rem; background: var(--card); }
+      .card h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 .75rem; font-weight: 600; }
+      .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+      button { font: inherit; font-weight: 500; padding: .55rem 1rem; border: 1px solid var(--line); border-radius: 9px; background: var(--brand); color: #fff; cursor: pointer; }
       button.secondary { background: transparent; color: var(--fg); }
       button:disabled { opacity: .5; cursor: not-allowed; }
-      input[type=text] { font: inherit; width: 100%; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
-      .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-      .examples button { background: transparent; color: var(--accent); border-style: dashed; font-size: .85rem; }
-      pre { background: color-mix(in srgb, var(--bg) 80%, #888); padding: .75rem; border-radius: 8px; overflow-x: auto; font-size: .85rem; margin: .5rem 0 0; }
-      .privacy { display: flex; gap: 1.5rem; flex-wrap: wrap; }
-      .stat { font-size: 1.4rem; font-weight: 600; }
-      .stat small { display: block; font-size: .72rem; font-weight: 400; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-      .ok { color: var(--accent); }
-      .err { color: #d44; }
+      input[type=text], input[type=password] { font: inherit; flex: 1; min-width: 12rem; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--fg); }
       .muted { color: var(--muted); font-size: .85rem; }
-      table { border-collapse: collapse; font-size: .85rem; width: 100%; }
-      th, td { border: 1px solid var(--line); padding: .3rem .5rem; text-align: left; }
-      .log-entry { border-top: 1px solid var(--line); padding: .5rem 0; font-size: .82rem; }
+      .ok { color: var(--accent); } .err { color: var(--warn); }
+      .examples button { background: transparent; color: var(--brand); border-style: dashed; font-size: .82rem; padding: .35rem .7rem; }
+      pre { background: color-mix(in srgb, var(--bg) 60%, #888); padding: .8rem; border-radius: 9px; overflow-x: auto; font-size: .84rem; margin: .4rem 0 0; }
+      table { border-collapse: collapse; font-size: .86rem; width: 100%; }
+      th, td { border: 1px solid var(--line); padding: .35rem .6rem; text-align: left; }
+
+      /* Hero: the privacy ledger */
+      .ledger { border: 1.5px solid var(--accent); background: var(--accent-soft); }
+      .ledger.breach { border-color: var(--warn); background: var(--warn-soft); }
+      .ledger-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+      .ledger-big { font-size: 2rem; font-weight: 700; color: var(--accent); letter-spacing: -.02em; }
+      .ledger.breach .ledger-big { color: var(--warn); }
+      .ledger-sub { color: var(--muted); font-size: .9rem; }
+      .verify { font-size: .85rem; margin: .6rem 0 .2rem; }
+      .egress { font-size: .82rem; width: 100%; margin-top: .7rem; }
+      .egress td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+      .contrast { margin-top: .75rem; padding-top: .7rem; border-top: 1px dashed var(--line); font-size: .88rem; }
+      .contrast b { color: var(--warn); }
+      .log-entry { border-top: 1px solid var(--line); padding: .45rem 0; font-size: .82rem; }
+      .pill { display: inline-block; font-size: .72rem; padding: .1rem .5rem; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
     </style>
   </head>
   <body>
-    <h1>Local Data Analyst</h1>
-    <p class="sub">Ask questions about a CSV. Agent-generated Python runs <strong>in this browser tab</strong> over your file — the data never touches a server.</p>
-
-    <div class="card">
-      <div class="row">
-        <button id="pick">Choose a CSV…</button>
-        <button id="sample" class="secondary">Use sample data</button>
-        <span id="file-status" class="muted">No file loaded.</span>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="row">
-        <input id="apikey" type="password" placeholder="Anthropic API key (optional) — sk-ant-…" autocomplete="off" />
-        <span id="planner-mode" class="muted">Planner: built-in (no key)</span>
-      </div>
-      <p class="muted" style="margin:.4rem 0 0">
-        With a key, Claude (opus-4-8) writes the Python. The key is used directly from this tab against the Anthropic API and is never sent anywhere else — use a limited, revocable key.
+    <main>
+      <div class="brand">WebKaya</div>
+      <h1>Private Data Analyst</h1>
+      <p class="lede">
+        Ask questions about a spreadsheet in plain English. An AI writes the code, and it runs
+        <b>entirely in this browser tab</b> over your file. Your data is never uploaded — and you can
+        watch it not happen, live, below.
       </p>
-    </div>
 
-    <div class="card">
-      <div class="row">
-        <input id="question" type="text" placeholder="e.g. average revenue by region" disabled />
-        <button id="ask" disabled>Ask</button>
+      <div class="card">
+        <h2>1 · Your data</h2>
+        <div class="row">
+          <button id="pick">Choose a CSV…</button>
+          <button id="sample" class="secondary">Use sample data</button>
+          <span id="file-status" class="muted">No file loaded.</span>
+        </div>
+        <p class="muted" id="sample-note" style="margin:.5rem 0 0">
+          The sample is deliberately sensitive — salaries and ID fragments — to make the point: you would
+          not want this on someone else's server.
+        </p>
       </div>
-      <div class="examples row" style="margin-top:.6rem">
-        <span class="muted">Try:</span>
-        <button data-q="how many rows are there?">row count</button>
-        <button data-q="what columns does this have?">columns</button>
-        <button data-q="average revenue by region">avg revenue by region</button>
-        <button data-q="top 3 country by revenue">top 3 by revenue</button>
+
+      <div class="card">
+        <h2>2 · Optional: use Claude</h2>
+        <div class="row">
+          <input id="apikey" type="password" placeholder="Anthropic API key (optional) — sk-ant-…" autocomplete="off" />
+          <span id="planner-mode" class="muted">Engine: built-in (no key)</span>
+        </div>
+        <p class="muted" style="margin:.45rem 0 0">
+          With a key, Claude writes the analysis code (and fixes it if it errors). Only your <b>question</b>
+          is sent to Claude — never the data. The key is used directly from this tab; use a limited, revocable one.
+        </p>
       </div>
-    </div>
 
-    <div class="card" id="result-card" hidden>
-      <strong>Generated Python</strong>
-      <pre id="code"></pre>
-      <strong>Result</strong>
-      <div id="result"></div>
-    </div>
-
-    <div class="card">
-      <div class="privacy">
-        <div class="stat ok"><span id="rows">0</span><small>rows processed locally</small></div>
-        <div class="stat ok"><span id="bytes-sent">0</span><small>bytes of your data sent to a server</small></div>
-        <div class="stat"><span id="last-ms">—</span><small>last run (ms)</small></div>
+      <div class="card">
+        <h2>3 · Ask</h2>
+        <div class="row">
+          <input id="question" type="text" placeholder="e.g. average base salary by department" disabled />
+          <button id="ask" disabled>Ask</button>
+        </div>
+        <div class="examples row" style="margin-top:.6rem">
+          <span class="muted">Try:</span>
+          <button data-q="average base salary by department">avg salary by dept</button>
+          <button data-q="who has the highest total compensation">highest total comp</button>
+          <button data-q="total bonus pool">total bonus pool</button>
+        </div>
       </div>
-    </div>
 
-    <div class="card">
-      <strong>Session audit log</strong>
-      <p class="muted" style="margin:.25rem 0 0">Every run is recorded — the replay/audit trail the SDK provides for agent debugging.</p>
-      <div id="log"></div>
-    </div>
+      <div class="card" id="result-card" hidden>
+        <h2>Generated code <span class="pill">runs locally</span></h2>
+        <pre id="code"></pre>
+        <h2 style="margin-top:1rem">Answer</h2>
+        <div id="result"></div>
+        <p class="muted" id="timing" style="margin:.5rem 0 0"></p>
+      </div>
 
-    <p class="muted">
-      Status: <span id="status">loading Python runtime…</span> ·
-      Only the Pyodide runtime (~10&nbsp;MB) is fetched once from a CDN; your CSV stays on this device.
-    </p>
+      <div class="card ledger" id="ledger">
+        <h2 style="color:inherit">Live privacy ledger — verified, not promised</h2>
+        <div class="ledger-head">
+          <span class="ledger-big" id="data-bytes">0 bytes</span>
+          <span class="ledger-sub">of your data uploaded to any server</span>
+        </div>
+        <div class="verify" id="verify">Monitoring every network request this tab makes…</div>
+        <table class="egress"><tbody id="egress"></tbody></table>
+        <div class="contrast" id="contrast"></div>
+      </div>
+
+      <div class="card">
+        <h2>Session log</h2>
+        <p class="muted" style="margin:0 0 .4rem">Every run is recorded — the replay/audit trail behind agent debugging.</p>
+        <div id="log"></div>
+      </div>
+
+      <p class="muted">
+        Status: <span id="status">loading…</span> ·
+        The only thing fetched from the internet is the Python runtime (once) and, in Claude mode, your question text.
+        Open your browser's Network tab to confirm the ledger.
+      </p>
+    </main>
 
     <script type="importmap">
       {
