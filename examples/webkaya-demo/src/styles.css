@@ -44,6 +44,9 @@ h1 { font-size: 1.85rem; letter-spacing: -.025em; margin: .35rem 0 .5rem; }
 .cta:disabled { opacity: .55; cursor: not-allowed; }
 .key { font: inherit; flex: 1; min-width: 16rem; padding: .58rem .8rem; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--fg); }
 .key:focus { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); }
+.mode-chip { margin-top: .65rem; font-size: .78rem; padding: .3rem .6rem; border-radius: 8px; display: inline-block; border: 1px solid var(--line); }
+.mode-chip.worker { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.mode-chip.inline { color: var(--run); border-color: color-mix(in srgb, var(--run) 45%, var(--line)); background: color-mix(in srgb, var(--run) 8%, transparent); }
 
 .grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
 @media (min-width: 820px) { .grid { grid-template-columns: 1.45fr 1fr; align-items: start; } }

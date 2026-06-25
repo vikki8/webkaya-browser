@@ -36,12 +36,17 @@ built-in handlers.
 
 The orchestration is a real SDK primitive (`IsolatedOrchestrator` from
 `@webkaya/sandbox`), tested in the main suite. In Node the orchestrator defaults
-to the stronger `wasm` isolation (QuickJS on WebAssembly); the browser demo uses
-`runtime: 'worker'` because Web Workers load reliably under a bundler.
+to the stronger `wasm` isolation (QuickJS on WebAssembly); the browser demo
+probes for a working Web Worker at run time and uses `runtime: 'worker'` when one
+is available, falling back to `runtime: 'inline'` otherwise so the demo always
+completes. The chip under the Run button tells you which one is active.
 
 ## How it's wired
 
 - **React + Vite + TypeScript.** Vite aliases the SDK to its source in this repo
   (`vite.config.ts`), so the demo always matches the SDK with no separate build.
-- Each agent is a `runtime: 'worker'` sandbox; the worker entry is the SDK's
-  `runtime/worker/worker-entry`, bundled by Vite as a module worker.
+- Each agent is a sandbox whose worker entry is `src/agent.worker.ts` — a local
+  module worker (inside the project root, so Vite compiles it reliably) that
+  calls the SDK's `installWorkerHandler`.
+- On Run, `detectRuntime()` spawns a throwaway probe agent on a worker; if it
+  answers, the run uses worker isolation, otherwise it drops to inline.

@@ -2,8 +2,19 @@ import { useState } from 'react';
 import { IsolatedOrchestrator, type AgentRun } from '@webkaya/sandbox';
 import { ClaudeProvider } from '@webkaya/sandbox/llm';
 
-const workerFactory = () =>
-  new Worker(new URL('../../../src/runtime/worker/worker-entry.ts', import.meta.url), { type: 'module' });
+const workerFactory = () => new Worker(new URL('./agent.worker.ts', import.meta.url), { type: 'module' });
+
+// Prefer real Web Worker isolation; fall back to inline if the browser/bundler
+// doesn't deliver a working worker, so the demo always runs.
+async function detectRuntime(): Promise<'worker' | 'inline'> {
+  try {
+    const probe = new IsolatedOrchestrator({ runtime: 'worker', workerFactory, timeoutMs: 1200 });
+    const r = await probe.runAgent({ name: 'probe', handler: 'return { writes: { ok: "1" } };' }, 'probe');
+    return r.ok && Object.keys(r.writes).length === 1 ? 'worker' : 'inline';
+  } catch {
+    return 'inline';
+  }
+}
 
 // The task: total these sales by region. Split into 3 shards of 3 rows.
 const DATA = [
@@ -96,6 +107,7 @@ export function App() {
   const [report, setReport] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
+  const [mode, setMode] = useState<'worker' | 'inline' | null>(null);
 
   const patch = (name: string, p: Partial<AgentView>) =>
     setAgents((prev) => prev.map((a) => (a.name === name ? { ...a, ...p } : a)));
@@ -105,7 +117,9 @@ export function App() {
     setRunning(true); setReport(null); setBoard([]); setAgents(init());
 
     const provider = apiKey.trim().length > 12 ? new ClaudeProvider({ apiKey: apiKey.trim(), dangerouslyAllowBrowser: true }) : null;
-    const orch = new IsolatedOrchestrator({ runtime: 'worker', workerFactory });
+    const runtime = await detectRuntime();
+    setMode(runtime);
+    const orch = new IsolatedOrchestrator({ runtime, workerFactory });
     const boardSoFar: BoardEntry[] = [];
 
     for (const phase of PHASES) {
@@ -176,6 +190,13 @@ export function App() {
           <input className="key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
                  placeholder="Optional: Anthropic key — let each agent write its own code" autoComplete="off" />
         </div>
+        {mode && (
+          <div className={`mode-chip ${mode}`}>
+            {mode === 'worker'
+              ? 'isolation · each agent on its own Web Worker thread (no page access)'
+              : 'isolation · inline (Web Workers unavailable here — same realm, brokered board)'}
+          </div>
+        )}
       </section>
 
       <div className="grid">
@@ -191,7 +212,7 @@ export function App() {
                         <span className="dot" />
                         <span className="name">{a.name}</span>
                         {a.ai && <span className="badge ai">Claude wrote this</span>}
-                        <span className="tag">isolated</span>
+                        <span className="tag">{mode === 'inline' ? 'inline' : 'isolated'}</span>
                       </div>
                       <div className="card-body">
                         {a.status === 'idle' && <span className="muted">waiting</span>}
